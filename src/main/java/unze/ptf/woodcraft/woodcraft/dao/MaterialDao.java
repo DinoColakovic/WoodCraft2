@@ -15,21 +15,20 @@ import java.util.Optional;
 public class MaterialDao {
     public int create(Material material) {
         String sql = """
-            INSERT INTO materials(user_id, name, type, color_hex, sheet_width_cm, sheet_height_cm, sheet_price,
+            INSERT INTO materials(user_id, name, type, sheet_width_cm, sheet_height_cm, sheet_price,
                                   price_per_square_meter, price_per_linear_meter)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (Connection connection = Database.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
             statement.setInt(1, material.getUserId());
             statement.setString(2, material.getName());
             statement.setString(3, material.getType().name());
-            statement.setString(4, material.getColorHex());
-            statement.setDouble(5, material.getSheetWidthCm());
-            statement.setDouble(6, material.getSheetHeightCm());
-            statement.setDouble(7, material.getSheetPrice());
-            statement.setDouble(8, material.getPricePerSquareMeter());
-            statement.setDouble(9, material.getPricePerLinearMeter());
+            statement.setDouble(4, material.getSheetWidthCm());
+            statement.setDouble(5, material.getSheetHeightCm());
+            statement.setDouble(6, material.getSheetPrice());
+            statement.setDouble(7, material.getPricePerSquareMeter());
+            statement.setDouble(8, material.getPricePerLinearMeter());
             statement.executeUpdate();
             try (ResultSet keys = statement.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -81,7 +80,6 @@ public class MaterialDao {
                 resultSet.getInt("user_id"),
                 resultSet.getString("name"),
                 MaterialType.valueOf(resultSet.getString("type")),
-                resultSet.getString("color_hex"),
                 resultSet.getDouble("sheet_width_cm"),
                 resultSet.getDouble("sheet_height_cm"),
                 resultSet.getDouble("sheet_price"),

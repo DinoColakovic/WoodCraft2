@@ -5,21 +5,18 @@ public class Material {
     private final int userId;
     private final String name;
     private final MaterialType type;
-    private final String colorHex;
     private final double sheetWidthCm;
     private final double sheetHeightCm;
     private final double sheetPrice;
     private final double pricePerSquareMeter;
     private final double pricePerLinearMeter;
 
-    public Material(int id, int userId, String name, MaterialType type, String colorHex, double sheetWidthCm,
-                    double sheetHeightCm,
+    public Material(int id, int userId, String name, MaterialType type, double sheetWidthCm, double sheetHeightCm,
                     double sheetPrice, double pricePerSquareMeter, double pricePerLinearMeter) {
         this.id = id;
         this.userId = userId;
         this.name = name;
         this.type = type;
-        this.colorHex = colorHex;
         this.sheetWidthCm = sheetWidthCm;
         this.sheetHeightCm = sheetHeightCm;
         this.sheetPrice = sheetPrice;
@@ -41,10 +38,6 @@ public class Material {
 
     public MaterialType getType() {
         return type;
-    }
-
-    public String getColorHex() {
-        return colorHex;
     }
 
     public double getSheetWidthCm() {
