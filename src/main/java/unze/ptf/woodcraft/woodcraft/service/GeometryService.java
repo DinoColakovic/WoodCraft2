@@ -23,7 +23,7 @@ public class GeometryService {
             adjacency.computeIfAbsent(edge.getEndNodeId(), key -> new ArrayList<>()).add(edge.getStartNodeId());
         }
 
-        Set<List<Integer>> seenCycles = new HashSet<>();
+        Set<String> seenCycles = new HashSet<>();
         List<ShapePolygon> shapes = new ArrayList<>();
         for (NodePoint node : nodes) {
             List<Integer> path = new ArrayList<>();
@@ -62,12 +62,12 @@ public class GeometryService {
     }
 
     private void dfsCycles(int start, int current, Map<Integer, List<Integer>> adjacency, List<Integer> path,
-                           Set<List<Integer>> seenCycles, List<ShapePolygon> shapes, Map<Integer, NodePoint> nodeMap,
+                           Set<String> seenCycles, List<ShapePolygon> shapes, Map<Integer, NodePoint> nodeMap,
                            int documentId) {
         List<Integer> neighbors = adjacency.getOrDefault(current, List.of());
         for (int neighbor : neighbors) {
             if (neighbor == start && path.size() >= 3) {
-                List<Integer> key = normalizeCycle(path);
+                String key = normalizeCycle(path);
                 if (seenCycles.add(key)) {
                     List<NodePoint> cycleNodes = new ArrayList<>();
                     for (int nodeId : path) {
@@ -88,41 +88,28 @@ public class GeometryService {
         }
     }
 
-    private List<Integer> normalizeCycle(List<Integer> path) {
+    private String normalizeCycle(List<Integer> path) {
         int size = path.size();
         List<Integer> forward = new ArrayList<>(path);
         List<Integer> backward = new ArrayList<>();
         for (int i = path.size() - 1; i >= 0; i--) {
             backward.add(path.get(i));
         }
-        List<Integer> forwardKey = rotationKey(forward, size);
-        List<Integer> backwardKey = rotationKey(backward, size);
-        return compareCycles(forwardKey, backwardKey) <= 0 ? forwardKey : backwardKey;
+        return Math.min(rotationKey(forward, size), rotationKey(backward, size));
     }
 
-    private List<Integer> rotationKey(List<Integer> cycle, int size) {
+    private String rotationKey(List<Integer> cycle, int size) {
         int minIndex = 0;
         for (int i = 1; i < size; i++) {
             if (cycle.get(i) < cycle.get(minIndex)) {
                 minIndex = i;
             }
         }
-        List<Integer> rotated = new ArrayList<>();
+        StringBuilder builder = new StringBuilder();
         for (int i = 0; i < size; i++) {
             int index = (minIndex + i) % size;
-            rotated.add(cycle.get(index));
+            builder.append(cycle.get(index)).append('-');
         }
-        return List.copyOf(rotated);
-    }
-
-    private int compareCycles(List<Integer> left, List<Integer> right) {
-        int size = Math.min(left.size(), right.size());
-        for (int i = 0; i < size; i++) {
-            int compare = Integer.compare(left.get(i), right.get(i));
-            if (compare != 0) {
-                return compare;
-            }
-        }
-        return Integer.compare(left.size(), right.size());
+        return builder.toString();
     }
 }
