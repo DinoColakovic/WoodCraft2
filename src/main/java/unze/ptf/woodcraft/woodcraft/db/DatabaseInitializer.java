@@ -32,7 +32,6 @@ public final class DatabaseInitializer {
                     user_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     type TEXT NOT NULL,
-                    color_hex TEXT NOT NULL DEFAULT '#8FAADC',
                     sheet_width_cm REAL,
                     sheet_height_cm REAL,
                     sheet_price REAL,
@@ -41,11 +40,6 @@ public final class DatabaseInitializer {
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )
                 """);
-            try {
-                statement.executeUpdate("ALTER TABLE materials ADD COLUMN color_hex TEXT NOT NULL DEFAULT '#8FAADC'");
-            } catch (SQLException ignored) {
-                // Column already exists.
-            }
             statement.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS nodes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

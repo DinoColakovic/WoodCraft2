@@ -7,19 +7,16 @@ public class ShapePolygon {
     private final int documentId;
     private final Integer materialId;
     private final int quantity;
-    private final List<Integer> nodeIds;
     private final List<NodePoint> nodes;
     private final double areaCm2;
     private final double perimeterCm;
 
-    public ShapePolygon(int id, int documentId, Integer materialId, int quantity, List<Integer> nodeIds,
-                        List<NodePoint> nodes,
+    public ShapePolygon(int id, int documentId, Integer materialId, int quantity, List<NodePoint> nodes,
                         double areaCm2, double perimeterCm) {
         this.id = id;
         this.documentId = documentId;
         this.materialId = materialId;
         this.quantity = quantity;
-        this.nodeIds = nodeIds;
         this.nodes = nodes;
         this.areaCm2 = areaCm2;
         this.perimeterCm = perimeterCm;
@@ -39,10 +36,6 @@ public class ShapePolygon {
 
     public int getQuantity() {
         return quantity;
-    }
-
-    public List<Integer> getNodeIds() {
-        return nodeIds;
     }
 
     public List<NodePoint> getNodes() {
