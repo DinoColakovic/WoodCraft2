@@ -95,7 +95,9 @@ public class GeometryService {
         for (int i = path.size() - 1; i >= 0; i--) {
             backward.add(path.get(i));
         }
-        return Math.min(rotationKey(forward, size), rotationKey(backward, size));
+        String a = rotationKey(forward, size);
+        String b = rotationKey(backward, size);
+        return (a.compareTo(b) <= 0) ? a : b;
     }
 
     private String rotationKey(List<Integer> cycle, int size) {
