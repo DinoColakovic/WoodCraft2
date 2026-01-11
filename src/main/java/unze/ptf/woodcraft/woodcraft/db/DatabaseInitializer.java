@@ -44,7 +44,6 @@ public final class DatabaseInitializer {
             try {
                 statement.executeUpdate("ALTER TABLE materials ADD COLUMN color_hex TEXT NOT NULL DEFAULT '#8FAADC'");
             } catch (SQLException ignored) {
-                // Column already exists.
             }
             statement.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS nodes (

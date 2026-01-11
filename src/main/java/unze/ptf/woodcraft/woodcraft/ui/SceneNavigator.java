@@ -1,9 +1,8 @@
 package unze.ptf.woodcraft.woodcraft.ui;
 
+import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
-import javafx.fxml.FXMLLoader;
-import java.io.IOException;
 import unze.ptf.woodcraft.woodcraft.dao.DocumentDao;
 import unze.ptf.woodcraft.woodcraft.dao.EdgeDao;
 import unze.ptf.woodcraft.woodcraft.dao.GuideDao;
@@ -15,6 +14,8 @@ import unze.ptf.woodcraft.woodcraft.service.AuthService;
 import unze.ptf.woodcraft.woodcraft.service.EstimationService;
 import unze.ptf.woodcraft.woodcraft.service.GeometryService;
 import unze.ptf.woodcraft.woodcraft.session.SessionManager;
+
+import java.io.IOException;
 
 public class SceneNavigator {
     private final Stage stage;

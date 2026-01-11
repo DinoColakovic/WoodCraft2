@@ -7,11 +7,11 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.Menu;
+import javafx.scene.control.MenuBar;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.VBox;
-import javafx.scene.control.Menu;
-import javafx.scene.control.MenuBar;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
 import unze.ptf.woodcraft.woodcraft.dao.DocumentDao;
@@ -79,7 +79,6 @@ public class MainController {
     private Button zoomInButton;
     @FXML
     private Button zoomOutButton;
-
     @FXML
     private MenuBar menuBar;
     @FXML
