@@ -10,13 +10,22 @@ public class RulerPane extends Canvas {
         VERTICAL
     }
 
-    private final Orientation orientation;
+    private Orientation orientation = Orientation.HORIZONTAL;
     private double scale = 10.0;
 
-    public RulerPane(Orientation orientation) {
-        this.orientation = orientation;
+    public RulerPane() {
         widthProperty().addListener((obs, oldVal, newVal) -> draw());
         heightProperty().addListener((obs, oldVal, newVal) -> draw());
+    }
+
+    public RulerPane(Orientation orientation) {
+        this();
+        this.orientation = orientation;
+    }
+
+    public void setOrientation(Orientation orientation) {
+        this.orientation = orientation;
+        draw();
     }
 
     public void setScale(double scale) {

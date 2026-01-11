@@ -30,6 +30,17 @@ public class NodeDao {
         return new NodePoint(-1, documentId, xCm, yCm);
     }
 
+    public void delete(int nodeId) {
+        String sql = "DELETE FROM nodes WHERE id = ?";
+        try (Connection connection = Database.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, nodeId);
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Failed to delete node", exception);
+        }
+    }
+
     public List<NodePoint> findByDocument(int documentId) {
         String sql = "SELECT id, document_id, x_cm, y_cm FROM nodes WHERE document_id = ?";
         List<NodePoint> nodes = new ArrayList<>();

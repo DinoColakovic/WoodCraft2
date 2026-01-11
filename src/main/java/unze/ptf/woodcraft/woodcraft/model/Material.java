@@ -10,6 +10,7 @@ public class Material {
     private final double sheetPrice;
     private final double pricePerSquareMeter;
     private final double pricePerLinearMeter;
+    private String colorHex = "#8FAADC";
 
     public Material(int id, int userId, String name, MaterialType type, double sheetWidthCm, double sheetHeightCm,
                     double sheetPrice, double pricePerSquareMeter, double pricePerLinearMeter) {
@@ -62,6 +63,14 @@ public class Material {
 
     public double getSheetAreaCm2() {
         return sheetWidthCm * sheetHeightCm;
+    }
+
+    public String getColorHex() {
+        return colorHex;
+    }
+
+    public void setColorHex(String hex) {
+        this.colorHex = hex;
     }
 
     @Override

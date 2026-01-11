@@ -67,6 +67,8 @@ public class MainView {
 
     private double scale = 10.0;
     private Document currentDocument;
+    private Integer selectedNodeId;
+    private CanvasPane.Mode currentTool = CanvasPane.Mode.PEN;
 
     public MainView(SessionManager sessionManager, AuthService authService, UserDao userDao, MaterialDao materialDao,
                     DocumentDao documentDao, NodeDao nodeDao, EdgeDao edgeDao, GuideDao guideDao, ShapeDao shapeDao,
@@ -109,8 +111,8 @@ public class MainView {
         root.setCenter(canvasRegion);
         root.setRight(buildSidebar());
 
-        canvasPane.setOnNodeRequested(this::handleNodeCreate);
-        canvasPane.setOnEdgeRequested(this::handleEdgeCreate);
+        canvasPane.setOnCanvasClicked(this::handleCanvasClick);
+        canvasPane.setOnNodeClicked(this::handleNodeClick);
         setupGuideDragging();
     }
 
@@ -141,10 +143,10 @@ public class MainView {
 
     private ToolBar buildToolBar() {
         Button addNode = new Button("Add Node");
-        addNode.setOnAction(event -> canvasPane.setMode(CanvasPane.Mode.ADD_NODE));
+        addNode.setOnAction(event -> setTool(CanvasPane.Mode.PEN));
 
         Button connectNodes = new Button("Connect");
-        connectNodes.setOnAction(event -> canvasPane.setMode(CanvasPane.Mode.CONNECT_NODES));
+        connectNodes.setOnAction(event -> setTool(CanvasPane.Mode.SELECT));
 
         Button zoomIn = new Button("Zoom +");
         zoomIn.setOnAction(event -> updateScale(scale + 2));
@@ -227,6 +229,37 @@ public class MainView {
         }
     }
 
+    private void handleCanvasClick(Point2D cmPoint) {
+        if (currentDocument == null) {
+            return;
+        }
+        if (currentTool != CanvasPane.Mode.PEN) {
+            return;
+        }
+        handleNodeCreate(cmPoint);
+    }
+
+    private void handleNodeClick(int nodeId) {
+        if (currentDocument == null) {
+            return;
+        }
+        if (currentTool == CanvasPane.Mode.SELECT) {
+            if (selectedNodeId != null && selectedNodeId != nodeId) {
+                handleEdgeCreate(selectedNodeId, nodeId);
+            }
+            selectedNodeId = nodeId;
+            canvasPane.setSelectedNode(nodeId);
+            return;
+        }
+        if (currentTool == CanvasPane.Mode.PEN) {
+            if (selectedNodeId != null && selectedNodeId != nodeId) {
+                handleEdgeCreate(selectedNodeId, nodeId);
+            }
+            selectedNodeId = nodeId;
+            canvasPane.setSelectedNode(nodeId);
+        }
+    }
+
     private void handleNodeCreate(Point2D cmPoint) {
         if (currentDocument == null) {
             return;
@@ -250,6 +283,15 @@ public class MainView {
         canvasPane.setScale(scale);
         horizontalRuler.setScale(scale);
         verticalRuler.setScale(scale);
+    }
+
+    private void setTool(CanvasPane.Mode mode) {
+        currentTool = mode;
+        canvasPane.setMode(mode);
+        if (mode != CanvasPane.Mode.PEN) {
+            selectedNodeId = null;
+            canvasPane.clearSelection();
+        }
     }
 
     private void setupGuideDragging() {
@@ -313,8 +355,8 @@ public class MainView {
         Material material = defaultMaterial.getSelectionModel().getSelectedItem();
         List<ShapePolygon> assigned = shapes.stream()
                 .map(shape -> new ShapePolygon(-1, shape.getDocumentId(),
-                        material == null ? null : material.getId(), shape.getQuantity(), shape.getNodes(),
-                        shape.getAreaCm2(), shape.getPerimeterCm()))
+                        material == null ? null : material.getId(), shape.getQuantity(), shape.getNodeIds(),
+                        shape.getNodes(), shape.getAreaCm2(), shape.getPerimeterCm()))
                 .toList();
         shapeDao.replaceShapes(currentDocument.getId(), assigned);
         updateSummary();

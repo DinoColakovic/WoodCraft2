@@ -30,6 +30,18 @@ public class EdgeDao {
         return new Edge(-1, documentId, startNodeId, endNodeId);
     }
 
+    public void deleteByNode(int nodeId) {
+        String sql = "DELETE FROM edges WHERE start_node_id = ? OR end_node_id = ?";
+        try (Connection connection = Database.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, nodeId);
+            statement.setInt(2, nodeId);
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Failed to delete edges", exception);
+        }
+    }
+
     public List<Edge> findByDocument(int documentId) {
         String sql = "SELECT id, document_id, start_node_id, end_node_id FROM edges WHERE document_id = ?";
         List<Edge> edges = new ArrayList<>();

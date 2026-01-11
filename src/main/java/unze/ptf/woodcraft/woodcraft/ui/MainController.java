@@ -140,10 +140,8 @@ public class MainController {
         if (sessionManager.getCurrentUser() != null && sessionManager.getCurrentUser().getRole() != null) {
             if (sessionManager.getCurrentUser().getRole().name().equals("ADMIN")) {
                 adminMenu.setVisible(true);
-                adminMenu.setManaged(true);
             } else {
                 adminMenu.setVisible(false);
-                adminMenu.setManaged(false);
             }
         }
     }
