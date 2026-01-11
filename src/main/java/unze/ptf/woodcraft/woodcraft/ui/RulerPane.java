@@ -28,6 +28,18 @@ public class RulerPane extends Canvas {
         draw();
     }
 
+    @Override
+    public void setHeight(double h) {
+        super.setHeight(h);
+        draw();
+    }
+
+    @Override
+    public void setWidth(double w) {
+        super.setWidth(w);
+        draw();
+    }
+
     public void setScale(double scale) {
         this.scale = scale;
         draw();
