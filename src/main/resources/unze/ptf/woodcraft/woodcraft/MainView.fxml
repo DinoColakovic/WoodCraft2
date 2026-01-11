@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import unze.ptf.woodcraft.woodcraft.ui.CanvasPane?>
+<?import unze.ptf.woodcraft.woodcraft.ui.RulerPane?>
+
+<BorderPane xmlns="http://javafx.com/javafx"
+            xmlns:fx="http://javafx.com/fxml"
+            fx:controller="unze.ptf.woodcraft.woodcraft.ui.MainController">
+    <top>
+        <VBox>
+            <MenuBar fx:id="menuBar">
+                <menus>
+                    <Menu text="File"/>
+                    <Menu text="Edit"/>
+                    <Menu text="View"/>
+                    <Menu text="Window"/>
+                    <Menu text="Help"/>
+                    <Menu text="Admin" fx:id="adminMenu"/>
+                </menus>
+            </MenuBar>
+            <ToolBar>
+                <items>
+                    <ToggleButton fx:id="selectTool" text="Select"/>
+                    <ToggleButton fx:id="penTool" text="Pen"/>
+                    <ToggleButton fx:id="eraseTool" text="Erase"/>
+                    <Separator/>
+                    <Button fx:id="zoomInButton" text="Zoom +"/>
+                    <Button fx:id="zoomOutButton" text="Zoom -"/>
+                </items>
+            </ToolBar>
+        </VBox>
+    </top>
+    <center>
+        <BorderPane>
+            <top>
+                <RulerPane fx:id="horizontalRuler" prefHeight="24.0"/>
+            </top>
+            <left>
+                <RulerPane fx:id="verticalRuler" prefWidth="24.0"/>
+            </left>
+            <center>
+                <CanvasPane fx:id="canvasPane"/>
+            </center>
+        </BorderPane>
+    </center>
+    <right>
+        <VBox fx:id="sidebar" spacing="10.0" prefWidth="320.0" style="-fx-background-color: #f5f5f5;" BorderPane.alignment="CENTER">
+            <Label text="Materials" style="-fx-font-size: 14px; -fx-font-weight: bold;"/>
+            <ListView fx:id="materialsList" VBox.vgrow="ALWAYS"/>
+            <Button fx:id="addMaterialButton" text="Add Material"/>
+            <Separator/>
+            <Label text="Default Material for Shapes"/>
+            <ComboBox fx:id="defaultMaterial"/>
+            <Separator/>
+            <Label text="Summary" style="-fx-font-size: 14px; -fx-font-weight: bold;"/>
+            <ListView fx:id="summaryList" VBox.vgrow="ALWAYS"/>
+            <Label fx:id="totalCostLabel" text="Total: $0.00"/>
+        </VBox>
+    </right>
+</BorderPane>
