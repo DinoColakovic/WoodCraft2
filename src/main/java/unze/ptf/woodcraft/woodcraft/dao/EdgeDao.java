@@ -51,16 +51,4 @@ public class EdgeDao {
         }
         return edges;
     }
-
-    public void deleteByNode(int nodeId) {
-        String sql = "DELETE FROM edges WHERE start_node_id = ? OR end_node_id = ?";
-        try (Connection connection = Database.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setInt(1, nodeId);
-            statement.setInt(2, nodeId);
-            statement.executeUpdate();
-        } catch (SQLException exception) {
-            throw new IllegalStateException("Failed to delete edges", exception);
-        }
-    }
 }

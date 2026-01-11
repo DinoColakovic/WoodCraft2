@@ -51,15 +51,4 @@ public class NodeDao {
         }
         return nodes;
     }
-
-    public void delete(int nodeId) {
-        String sql = "DELETE FROM nodes WHERE id = ?";
-        try (Connection connection = Database.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setInt(1, nodeId);
-            statement.executeUpdate();
-        } catch (SQLException exception) {
-            throw new IllegalStateException("Failed to delete node", exception);
-        }
-    }
 }

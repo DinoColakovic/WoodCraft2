@@ -12,8 +12,6 @@ import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.Separator;
-import javafx.scene.control.ToggleButton;
-import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.ToolBar;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
@@ -29,10 +27,8 @@ import unze.ptf.woodcraft.woodcraft.dao.NodeDao;
 import unze.ptf.woodcraft.woodcraft.dao.ShapeDao;
 import unze.ptf.woodcraft.woodcraft.dao.UserDao;
 import unze.ptf.woodcraft.woodcraft.model.Document;
-import unze.ptf.woodcraft.woodcraft.model.Edge;
 import unze.ptf.woodcraft.woodcraft.model.Guide;
 import unze.ptf.woodcraft.woodcraft.model.Material;
-import unze.ptf.woodcraft.woodcraft.model.NodePoint;
 import unze.ptf.woodcraft.woodcraft.model.Role;
 import unze.ptf.woodcraft.woodcraft.model.ShapePolygon;
 import unze.ptf.woodcraft.woodcraft.service.AuthService;
@@ -41,10 +37,7 @@ import unze.ptf.woodcraft.woodcraft.service.EstimationSummary;
 import unze.ptf.woodcraft.woodcraft.service.GeometryService;
 import unze.ptf.woodcraft.woodcraft.session.SessionManager;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class MainView {
     private static final double RULER_SIZE = 24;
@@ -74,11 +67,6 @@ public class MainView {
 
     private double scale = 10.0;
     private Document currentDocument;
-    private final List<ShapePolygon> shapes = new ArrayList<>();
-    private final Map<Integer, Color> materialColors = new HashMap<>();
-    private Integer selectedNodeId;
-    private Integer selectedShapeId;
-    private CanvasPane.Mode currentTool = CanvasPane.Mode.PEN;
 
     public MainView(SessionManager sessionManager, AuthService authService, UserDao userDao, MaterialDao materialDao,
                     DocumentDao documentDao, NodeDao nodeDao, EdgeDao edgeDao, GuideDao guideDao, ShapeDao shapeDao,
@@ -121,9 +109,8 @@ public class MainView {
         root.setCenter(canvasRegion);
         root.setRight(buildSidebar());
 
-        canvasPane.setOnCanvasClicked(this::handleCanvasClick);
-        canvasPane.setOnNodeClicked(this::handleNodeClick);
-        canvasPane.setOnShapeClicked(this::handleShapeClick);
+        canvasPane.setOnNodeRequested(this::handleNodeCreate);
+        canvasPane.setOnEdgeRequested(this::handleEdgeCreate);
         setupGuideDragging();
     }
 
@@ -153,25 +140,11 @@ public class MainView {
     }
 
     private ToolBar buildToolBar() {
-        ToggleGroup tools = new ToggleGroup();
-        ToggleButton selectTool = new ToggleButton("Select");
-        selectTool.setToggleGroup(tools);
-        ToggleButton penTool = new ToggleButton("Pen");
-        penTool.setToggleGroup(tools);
-        ToggleButton eraseTool = new ToggleButton("Erase");
-        eraseTool.setToggleGroup(tools);
-        tools.selectToggle(penTool);
-        setTool(CanvasPane.Mode.PEN);
+        Button addNode = new Button("Add Node");
+        addNode.setOnAction(event -> canvasPane.setMode(CanvasPane.Mode.ADD_NODE));
 
-        tools.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal == selectTool) {
-                setTool(CanvasPane.Mode.SELECT);
-            } else if (newVal == eraseTool) {
-                setTool(CanvasPane.Mode.ERASE);
-            } else {
-                setTool(CanvasPane.Mode.PEN);
-            }
-        });
+        Button connectNodes = new Button("Connect");
+        connectNodes.setOnAction(event -> canvasPane.setMode(CanvasPane.Mode.CONNECT_NODES));
 
         Button zoomIn = new Button("Zoom +");
         zoomIn.setOnAction(event -> updateScale(scale + 2));
@@ -179,9 +152,7 @@ public class MainView {
         Button zoomOut = new Button("Zoom -");
         zoomOut.setOnAction(event -> updateScale(Math.max(2, scale - 2)));
 
-        ToolBar toolBar = new ToolBar();
-        toolBar.getItems().addAll(selectTool, penTool, eraseTool, new Separator(), zoomIn, zoomOut);
-        return toolBar;
+        return new ToolBar(addNode, connectNodes, new Separator(), zoomIn, zoomOut);
     }
 
     private VBox buildSidebar() {
@@ -212,7 +183,7 @@ public class MainView {
         });
 
         Label defaultLabel = new Label("Default Material for Shapes");
-        defaultMaterial.setOnAction(event -> updateSummary());
+        defaultMaterial.setOnAction(event -> recomputeShapes());
 
         Label summaryLabel = new Label("Summary");
         summaryLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
@@ -231,26 +202,17 @@ public class MainView {
         int userId = sessionManager.getCurrentUser().getId();
         currentDocument = documentDao.findFirstByUser(userId)
                 .orElseGet(() -> new Document(documentDao.createDocument(userId, "Default Project"), userId, "Default Project"));
-        List<NodePoint> nodes = nodeDao.findByDocument(currentDocument.getId());
-        List<Edge> edges = edgeDao.findByDocument(currentDocument.getId());
-        canvasPane.setNodes(nodes);
-        canvasPane.setEdges(edges);
+        canvasPane.setNodes(nodeDao.findByDocument(currentDocument.getId()));
+        canvasPane.setEdges(edgeDao.findByDocument(currentDocument.getId()));
         canvasPane.setGuides(guideDao.findByDocument(currentDocument.getId()));
-        loadShapes(nodes);
         refreshMaterials();
-        updateSummary();
+        recomputeShapes();
     }
 
     private void refreshMaterials() {
         List<Material> materials = materialDao.findByUser(sessionManager.getCurrentUser().getId());
         materialsList.getItems().setAll(materials);
         defaultMaterial.getItems().setAll(materials);
-        materialColors.clear();
-        for (Material material : materials) {
-            Color color = parseColor(material.getColorHex());
-            materialColors.put(material.getId(), color);
-        }
-        canvasPane.setMaterialColors(materialColors);
         if (!materials.isEmpty() && defaultMaterial.getSelectionModel().isEmpty()) {
             defaultMaterial.getSelectionModel().select(0);
         }
@@ -265,73 +227,22 @@ public class MainView {
         }
     }
 
-    private void handleCanvasClick(Point2D cmPoint) {
+    private void handleNodeCreate(Point2D cmPoint) {
         if (currentDocument == null) {
             return;
         }
-        if (currentTool == CanvasPane.Mode.SELECT) {
-            clearSelection();
-            return;
-        }
-        if (currentTool == CanvasPane.Mode.PEN) {
-            var node = nodeDao.create(currentDocument.getId(), cmPoint.getX(), cmPoint.getY());
-            canvasPane.addNode(node);
-            if (selectedNodeId != null) {
-                handleEdgeCreate(selectedNodeId, node.getId());
-            }
-            selectNode(node.getId());
-        }
+        var node = nodeDao.create(currentDocument.getId(), cmPoint.getX(), cmPoint.getY());
+        canvasPane.addNode(node);
+        recomputeShapes();
     }
 
     private void handleEdgeCreate(int startNodeId, int endNodeId) {
         if (currentDocument == null) {
             return;
         }
-        if (startNodeId == endNodeId) {
-            return;
-        }
-        List<Edge> existingEdges = edgeDao.findByDocument(currentDocument.getId());
         var edge = edgeDao.create(currentDocument.getId(), startNodeId, endNodeId);
         canvasPane.addEdge(edge);
-        GeometryService.CycleResult cycleResult = geometryService.detectCycleForEdge(existingEdges, startNodeId, endNodeId);
-        if (cycleResult.cycleDetected()) {
-            Map<Integer, NodePoint> nodeMap = buildNodeMap();
-            Material material = getActiveMaterial();
-            Integer materialId = material == null ? null : material.getId();
-            ShapePolygon newShape = geometryService.buildShapeFromCycle(currentDocument.getId(), materialId,
-                    cycleResult.nodeIds(), nodeMap);
-            if (!shapeExists(newShape.getNodeIds())) {
-                ShapePolygon saved = shapeDao.createShape(newShape);
-                shapes.add(saved);
-                canvasPane.addShape(saved);
-            }
-        }
-        updateSummary();
-        System.out.println("edge " + startNodeId + "-" + endNodeId + " added, cycleDetected="
-                + cycleResult.cycleDetected() + ", shapeCount=" + shapes.size());
-    }
-
-    private void handleNodeClick(int nodeId) {
-        if (currentTool == CanvasPane.Mode.ERASE) {
-            eraseNode(nodeId);
-            return;
-        }
-        if (currentTool == CanvasPane.Mode.SELECT) {
-            selectNode(nodeId);
-            return;
-        }
-        if (currentTool == CanvasPane.Mode.PEN) {
-            if (selectedNodeId != null && selectedNodeId != nodeId) {
-                handleEdgeCreate(selectedNodeId, nodeId);
-            }
-            selectNode(nodeId);
-        }
-    }
-
-    private void handleShapeClick(int shapeId) {
-        if (currentTool == CanvasPane.Mode.SELECT) {
-            selectShape(shapeId);
-        }
+        recomputeShapes();
     }
 
     private void updateScale(double newScale) {
@@ -392,132 +303,25 @@ public class MainView {
         });
     }
 
-    private void loadShapes(List<NodePoint> nodes) {
-        shapes.clear();
-        Map<Integer, NodePoint> nodeMap = new HashMap<>();
-        for (NodePoint node : nodes) {
-            nodeMap.put(node.getId(), node);
-        }
-        List<ShapePolygon> stored = shapeDao.findByDocument(currentDocument.getId());
-        for (ShapePolygon storedShape : stored) {
-            ShapePolygon hydrated = geometryService.buildShapeFromCycle(
-                    storedShape.getDocumentId(),
-                    storedShape.getMaterialId(),
-                    storedShape.getNodeIds(),
-                    nodeMap
-            );
-            shapes.add(new ShapePolygon(
-                    storedShape.getId(),
-                    hydrated.getDocumentId(),
-                    hydrated.getMaterialId(),
-                    hydrated.getQuantity(),
-                    hydrated.getNodeIds(),
-                    hydrated.getNodes(),
-                    storedShape.getAreaCm2(),
-                    storedShape.getPerimeterCm()
-            ));
-        }
-        canvasPane.setShapes(shapes);
-    }
-
-    private void recomputeShapesFromGeometry(List<NodePoint> nodes, List<Edge> edges) {
-        shapes.clear();
-        shapeDao.deleteByDocument(currentDocument.getId());
-        Map<Integer, NodePoint> nodeMap = new HashMap<>();
-        for (NodePoint node : nodes) {
-            nodeMap.put(node.getId(), node);
-        }
-        Material material = getActiveMaterial();
-        Integer materialId = material == null ? null : material.getId();
-        List<List<Integer>> cycles = geometryService.detectAllCycles(edges);
-        for (List<Integer> cycle : cycles) {
-            ShapePolygon newShape = geometryService.buildShapeFromCycle(currentDocument.getId(), materialId, cycle, nodeMap);
-            ShapePolygon saved = shapeDao.createShape(newShape);
-            shapes.add(saved);
-        }
-        canvasPane.setShapes(shapes);
-        updateSummary();
-    }
-
-    private Map<Integer, NodePoint> buildNodeMap() {
-        Map<Integer, NodePoint> nodeMap = new HashMap<>();
-        for (NodePoint node : nodeDao.findByDocument(currentDocument.getId())) {
-            nodeMap.put(node.getId(), node);
-        }
-        return nodeMap;
-    }
-
-    private boolean shapeExists(List<Integer> nodeIds) {
-        for (ShapePolygon shape : shapes) {
-            if (shape.getNodeIds().equals(nodeIds)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void eraseNode(int nodeId) {
-        edgeDao.deleteByNode(nodeId);
-        nodeDao.delete(nodeId);
-        List<NodePoint> nodes = nodeDao.findByDocument(currentDocument.getId());
-        List<Edge> edges = edgeDao.findByDocument(currentDocument.getId());
-        canvasPane.setNodes(nodes);
-        canvasPane.setEdges(edges);
-        recomputeShapesFromGeometry(nodes, edges);
-        clearSelection();
-    }
-
-    private void selectNode(int nodeId) {
-        selectedNodeId = nodeId;
-        selectedShapeId = null;
-        canvasPane.setSelectedNode(nodeId);
-    }
-
-    private void selectShape(int shapeId) {
-        selectedShapeId = shapeId;
-        selectedNodeId = null;
-        canvasPane.setSelectedShape(shapeId);
-    }
-
-    private void clearSelection() {
-        selectedNodeId = null;
-        selectedShapeId = null;
-        canvasPane.clearSelection();
-    }
-
-    private Material getActiveMaterial() {
-        Material selected = materialsList.getSelectionModel().getSelectedItem();
-        if (selected != null) {
-            return selected;
-        }
-        return defaultMaterial.getSelectionModel().getSelectedItem();
-    }
-
-    private void setTool(CanvasPane.Mode mode) {
-        currentTool = mode;
-        canvasPane.setMode(mode);
-        if (mode == CanvasPane.Mode.SELECT) {
+    private void recomputeShapes() {
+        if (currentDocument == null) {
             return;
         }
-        if (mode == CanvasPane.Mode.ERASE) {
-            clearSelection();
-        }
-    }
-
-    private Color parseColor(String value) {
-        try {
-            return Color.web(value);
-        } catch (IllegalArgumentException exception) {
-            return Color.web("#8FAADC");
-        }
+        List<ShapePolygon> shapes = geometryService.buildShapes(currentDocument.getId(),
+                nodeDao.findByDocument(currentDocument.getId()),
+                edgeDao.findByDocument(currentDocument.getId()));
+        Material material = defaultMaterial.getSelectionModel().getSelectedItem();
+        List<ShapePolygon> assigned = shapes.stream()
+                .map(shape -> new ShapePolygon(-1, shape.getDocumentId(),
+                        material == null ? null : material.getId(), shape.getQuantity(), shape.getNodes(),
+                        shape.getAreaCm2(), shape.getPerimeterCm()))
+                .toList();
+        shapeDao.replaceShapes(currentDocument.getId(), assigned);
+        updateSummary();
     }
 
     private void updateSummary() {
         summaryList.getItems().clear();
-        int index = 1;
-        for (ShapePolygon shape : shapes) {
-            summaryList.getItems().add(String.format("Shape %d area: %.2f cm²", index++, shape.getAreaCm2()));
-        }
         double total = 0;
         List<EstimationSummary> summaries = estimationService.estimate(currentDocument.getId(), 10.0);
         for (EstimationSummary summary : summaries) {
