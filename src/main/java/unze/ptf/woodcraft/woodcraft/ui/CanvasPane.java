@@ -131,7 +131,6 @@ public class CanvasPane extends Pane {
         } else {
             setCursor(Cursor.CROSSHAIR);
         }
-        redraw();
     }
 
     public void setScale(double scale) {
@@ -255,14 +254,11 @@ public class CanvasPane extends Pane {
         polygon.setFill(new Color(base.getRed(), base.getGreen(), base.getBlue(), 0.25));
         polygon.setStroke(Color.GRAY);
         polygon.setStrokeWidth(1);
-        polygon.setMouseTransparent(mode != Mode.SELECT);
         polygon.setOnMouseClicked(event -> {
             if (onShapeClicked != null) {
                 onShapeClicked.accept(shape.getId());
             }
-            if (mode == Mode.SELECT) {
-                event.consume();
-            }
+            event.consume();
         });
         shapeViews.put(shape.getId(), polygon);
         shapeLayer.getChildren().add(polygon);
