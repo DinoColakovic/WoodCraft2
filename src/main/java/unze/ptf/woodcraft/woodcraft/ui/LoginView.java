@@ -41,7 +41,7 @@ public class LoginView {
                 return;
             }
             if (authService.login(username, password).isPresent()) {
-                navigator.showMain();
+                navigator.showProjects();
             } else {
                 message.setText("Invalid credentials.");
             }

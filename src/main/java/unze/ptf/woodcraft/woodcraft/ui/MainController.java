@@ -7,11 +7,11 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.Menu;
+import javafx.scene.control.MenuBar;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.VBox;
-import javafx.scene.control.Menu;
-import javafx.scene.control.MenuBar;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
 import unze.ptf.woodcraft.woodcraft.dao.DocumentDao;
@@ -91,7 +91,7 @@ public class MainController {
     private final Map<Integer, Color> materialColors = new HashMap<>();
     private Integer selectedNodeId;
     private Integer selectedShapeId;
-    private CanvasPane.Mode currentTool = CanvasPane.Mode.PEN;
+    private CanvasPane.Mode currentTool = CanvasPane.Mode.DRAW_SHAPE;
 
     public MainController(SessionManager sessionManager, AuthService authService, MaterialDao materialDao,
                           DocumentDao documentDao, NodeDao nodeDao, EdgeDao edgeDao, GuideDao guideDao,
@@ -122,15 +122,15 @@ public class MainController {
         penTool.setToggleGroup(tools);
         eraseTool.setToggleGroup(tools);
         tools.selectToggle(penTool);
-        setTool(CanvasPane.Mode.PEN);
+        setTool(CanvasPane.Mode.DRAW_SHAPE);
 
         tools.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal == selectTool) {
-                setTool(CanvasPane.Mode.SELECT);
+                setTool(CanvasPane.Mode.MOVE_NODE);
             } else if (newVal == eraseTool) {
-                setTool(CanvasPane.Mode.ERASE);
+                setTool(CanvasPane.Mode.DELETE_NODE);
             } else {
-                setTool(CanvasPane.Mode.PEN);
+                setTool(CanvasPane.Mode.DRAW_SHAPE);
             }
         });
 
@@ -166,9 +166,9 @@ public class MainController {
     }
 
     private void setupCanvas() {
-        horizontalRuler.setHeight(RULER_SIZE);
+        horizontalRuler.setPrefHeight(RULER_SIZE);
         horizontalRuler.setOrientation(RulerPane.Orientation.HORIZONTAL);
-        verticalRuler.setWidth(RULER_SIZE);
+        verticalRuler.setPrefWidth(RULER_SIZE);
         verticalRuler.setOrientation(RulerPane.Orientation.VERTICAL);
         canvasPane.setOnCanvasClicked(this::handleCanvasClick);
         canvasPane.setOnNodeClicked(this::handleNodeClick);
@@ -179,7 +179,13 @@ public class MainController {
     private void loadUserData() {
         int userId = sessionManager.getCurrentUser().getId();
         currentDocument = documentDao.findFirstByUser(userId)
-                .orElseGet(() -> new Document(documentDao.createDocument(userId, "Default Project"), userId, "Default Project"));
+                .orElseGet(() -> {
+                    int id = documentDao.createDocument(userId, "Default Project");
+                    return documentDao.findById(id, userId).orElse(null);
+                });
+        if (currentDocument == null) {
+            return;
+        }
         List<NodePoint> nodes = nodeDao.findByDocument(currentDocument.getId());
         List<Edge> edges = edgeDao.findByDocument(currentDocument.getId());
         canvasPane.setNodes(nodes);
@@ -218,11 +224,11 @@ public class MainController {
         if (currentDocument == null) {
             return;
         }
-        if (currentTool == CanvasPane.Mode.SELECT) {
+        if (currentTool == CanvasPane.Mode.MOVE_NODE) {
             clearSelection();
             return;
         }
-        if (currentTool == CanvasPane.Mode.PEN) {
+        if (currentTool == CanvasPane.Mode.DRAW_SHAPE) {
             var node = nodeDao.create(currentDocument.getId(), cmPoint.getX(), cmPoint.getY());
             canvasPane.addNode(node);
             if (selectedNodeId != null) {
@@ -261,15 +267,15 @@ public class MainController {
     }
 
     private void handleNodeClick(int nodeId) {
-        if (currentTool == CanvasPane.Mode.ERASE) {
+        if (currentTool == CanvasPane.Mode.DELETE_NODE) {
             eraseNode(nodeId);
             return;
         }
-        if (currentTool == CanvasPane.Mode.SELECT) {
+        if (currentTool == CanvasPane.Mode.MOVE_NODE) {
             selectNode(nodeId);
             return;
         }
-        if (currentTool == CanvasPane.Mode.PEN) {
+        if (currentTool == CanvasPane.Mode.DRAW_SHAPE) {
             if (selectedNodeId != null && selectedNodeId != nodeId) {
                 handleEdgeCreate(selectedNodeId, nodeId);
             }
@@ -278,7 +284,7 @@ public class MainController {
     }
 
     private void handleShapeClick(int shapeId) {
-        if (currentTool == CanvasPane.Mode.SELECT) {
+        if (currentTool == CanvasPane.Mode.MOVE_NODE) {
             selectShape(shapeId);
         }
     }
@@ -298,8 +304,12 @@ public class MainController {
         canvasPane.getChildren().add(guidePreview);
 
         horizontalRuler.setOnMousePressed(event -> {
+            Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
             guidePreview.setVisible(true);
-            guidePreview.setStartY(event.getSceneY());
+            guidePreview.setStartX(0);
+            guidePreview.setEndX(canvasPane.getWidth());
+            guidePreview.setStartY(local.getY());
+            guidePreview.setEndY(local.getY());
         });
 
         horizontalRuler.setOnMouseDragged(event -> {
@@ -320,7 +330,14 @@ public class MainController {
             }
         });
 
-        verticalRuler.setOnMousePressed(event -> guidePreview.setVisible(true));
+        verticalRuler.setOnMousePressed(event -> {
+            Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
+            guidePreview.setVisible(true);
+            guidePreview.setStartY(0);
+            guidePreview.setEndY(canvasPane.getHeight());
+            guidePreview.setStartX(local.getX());
+            guidePreview.setEndX(local.getX());
+        });
 
         verticalRuler.setOnMouseDragged(event -> {
             Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
@@ -445,10 +462,10 @@ public class MainController {
     private void setTool(CanvasPane.Mode mode) {
         currentTool = mode;
         canvasPane.setMode(mode);
-        if (mode == CanvasPane.Mode.SELECT) {
+        if (mode == CanvasPane.Mode.MOVE_NODE) {
             return;
         }
-        if (mode == CanvasPane.Mode.ERASE) {
+        if (mode == CanvasPane.Mode.DELETE_NODE) {
             clearSelection();
         }
     }
@@ -465,7 +482,7 @@ public class MainController {
         summaryList.getItems().clear();
         int index = 1;
         for (ShapePolygon shape : shapes) {
-            summaryList.getItems().add(String.format("Shape %d area: %.2f cm²", index++, shape.getAreaCm2()));
+            summaryList.getItems().add(String.format("Shape %d area: %.2f cm2", index++, shape.getAreaCm2()));
         }
         double total = 0;
         List<EstimationSummary> summaries = estimationService.estimate(currentDocument.getId(), 10.0);

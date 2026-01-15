@@ -1,30 +1,20 @@
-package unze.ptf.woodcraft.woodcraft.model;
+package unze.ptf.woodcraft.woodcraft.ui;
 
-public class Document {
-    private final int id;
-    private final int userId;
+import unze.ptf.woodcraft.woodcraft.model.UnitSystem;
+
+public class DocumentSettings {
     private final String name;
     private final double widthCm;
     private final double heightCm;
     private final double kerfMm;
     private final UnitSystem unitSystem;
 
-    public Document(int id, int userId, String name, double widthCm, double heightCm, double kerfMm, UnitSystem unitSystem) {
-        this.id = id;
-        this.userId = userId;
+    public DocumentSettings(String name, double widthCm, double heightCm, double kerfMm, UnitSystem unitSystem) {
         this.name = name;
         this.widthCm = widthCm;
         this.heightCm = heightCm;
         this.kerfMm = kerfMm;
         this.unitSystem = unitSystem;
-    }
-
-    public int getId() {
-        return id;
-    }
-
-    public int getUserId() {
-        return userId;
     }
 
     public String getName() {

@@ -51,4 +51,15 @@ public class GuideDao {
         }
         return guides;
     }
+
+    public void deleteById(int guideId) {
+        String sql = "DELETE FROM guides WHERE id = ?";
+        try (Connection connection = Database.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, guideId);
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Failed to delete guide", exception);
+        }
+    }
 }

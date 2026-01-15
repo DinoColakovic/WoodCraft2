@@ -13,7 +13,13 @@ import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.Separator;
 import javafx.scene.control.ToolBar;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.stage.FileChooser;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -29,15 +35,23 @@ import unze.ptf.woodcraft.woodcraft.dao.UserDao;
 import unze.ptf.woodcraft.woodcraft.model.Document;
 import unze.ptf.woodcraft.woodcraft.model.Guide;
 import unze.ptf.woodcraft.woodcraft.model.Material;
+import unze.ptf.woodcraft.woodcraft.model.NodePoint;
 import unze.ptf.woodcraft.woodcraft.model.Role;
 import unze.ptf.woodcraft.woodcraft.model.ShapePolygon;
+import unze.ptf.woodcraft.woodcraft.model.UnitSystem;
 import unze.ptf.woodcraft.woodcraft.service.AuthService;
 import unze.ptf.woodcraft.woodcraft.service.EstimationService;
 import unze.ptf.woodcraft.woodcraft.service.EstimationSummary;
 import unze.ptf.woodcraft.woodcraft.service.GeometryService;
+import unze.ptf.woodcraft.woodcraft.service.PdfExportService;
 import unze.ptf.woodcraft.woodcraft.session.SessionManager;
+import unze.ptf.woodcraft.woodcraft.util.UnitConverter;
 
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainView {
     private static final double RULER_SIZE = 24;
@@ -63,16 +77,28 @@ public class MainView {
     private final ListView<Material> materialsList = new ListView<>();
     private final ComboBox<Material> defaultMaterial = new ComboBox<>();
     private final ListView<String> summaryList = new ListView<>();
+    private final ListView<String> cutList = new ListView<>();
+    private final ListView<String> sheetList = new ListView<>();
     private final Label totalCostLabel = new Label("Total: $0.00");
+    private final Label selectedShapeLabel = new Label("Selected shape: none");
+    private final Label selectedShapeCostLabel = new Label();
+
+    private final List<ShapePolygon> shapes = new ArrayList<>();
+    private final List<Guide> guides = new ArrayList<>();
+    private final PdfExportService pdfExportService = new PdfExportService();
 
     private double scale = 10.0;
     private Document currentDocument;
     private Integer selectedNodeId;
-    private CanvasPane.Mode currentTool = CanvasPane.Mode.PEN;
+    private Integer selectedShapeId;
+    private Integer lastDrawNodeId;
+    private CanvasPane.Mode currentTool = CanvasPane.Mode.DRAW_SHAPE;
+    private UnitSystem unitSystem = UnitSystem.CM;
 
     public MainView(SessionManager sessionManager, AuthService authService, UserDao userDao, MaterialDao materialDao,
                     DocumentDao documentDao, NodeDao nodeDao, EdgeDao edgeDao, GuideDao guideDao, ShapeDao shapeDao,
-                    GeometryService geometryService, EstimationService estimationService, SceneNavigator navigator) {
+                    GeometryService geometryService, EstimationService estimationService, SceneNavigator navigator,
+                    int documentId) {
         this.sessionManager = sessionManager;
         this.authService = authService;
         this.userDao = userDao;
@@ -85,6 +111,7 @@ public class MainView {
         this.geometryService = geometryService;
         this.estimationService = estimationService;
         this.navigator = navigator;
+        this.currentDocument = documentDao.findById(documentId, sessionManager.getCurrentUser().getId()).orElse(null);
 
         setupLayout();
         loadUserData();
@@ -101,8 +128,8 @@ public class MainView {
         root.setTop(top);
 
         BorderPane canvasRegion = new BorderPane();
-        horizontalRuler.setHeight(RULER_SIZE);
-        verticalRuler.setWidth(RULER_SIZE);
+        horizontalRuler.setPrefHeight(RULER_SIZE);
+        verticalRuler.setPrefWidth(RULER_SIZE);
 
         canvasRegion.setTop(horizontalRuler);
         canvasRegion.setLeft(verticalRuler);
@@ -113,20 +140,33 @@ public class MainView {
 
         canvasPane.setOnCanvasClicked(this::handleCanvasClick);
         canvasPane.setOnNodeClicked(this::handleNodeClick);
+        canvasPane.setOnShapeClicked(this::handleShapeClick);
+        canvasPane.setOnNodeMoveFinished(this::handleNodeMoveFinished);
+        canvasPane.setOnDeleteNodes(this::handleDeleteNodes);
+        canvasPane.setOnDeleteGuides(this::handleDeleteGuides);
+        canvasPane.addEventFilter(ScrollEvent.SCROLL, this::handleZoomScroll);
         setupGuideDragging();
     }
 
     private MenuBar buildMenu() {
         Menu file = new Menu("File");
         MenuItem logout = new MenuItem("Logout");
+        MenuItem exportPdf = new MenuItem("Export PDF");
         logout.setOnAction(event -> {
             authService.logout();
             navigator.showLogin();
         });
-        file.getItems().add(logout);
+        exportPdf.setOnAction(event -> exportPdf());
+        file.getItems().addAll(exportPdf, logout);
 
         Menu edit = new Menu("Edit");
+        MenuItem editCanvas = new MenuItem("Canvas Settings");
+        editCanvas.setOnAction(event -> openCanvasSettings());
+        edit.getItems().add(editCanvas);
         Menu view = new Menu("View");
+        MenuItem unitsToggle = new MenuItem("Toggle Units (cm/in)");
+        unitsToggle.setOnAction(event -> toggleUnits());
+        view.getItems().add(unitsToggle);
         Menu window = new Menu("Window");
         Menu help = new Menu("Help");
 
@@ -142,35 +182,67 @@ public class MainView {
     }
 
     private ToolBar buildToolBar() {
-        Button addNode = new Button("Add Node");
-        addNode.setOnAction(event -> setTool(CanvasPane.Mode.PEN));
+        ToggleGroup tools = new ToggleGroup();
 
-        Button connectNodes = new Button("Connect");
-        connectNodes.setOnAction(event -> setTool(CanvasPane.Mode.SELECT));
+        ToggleButton drawShape = new ToggleButton("Draw Shape");
+        drawShape.setToggleGroup(tools);
+        drawShape.setSelected(true);
+        drawShape.setOnAction(event -> setTool(CanvasPane.Mode.DRAW_SHAPE));
 
-        Button zoomIn = new Button("Zoom +");
-        zoomIn.setOnAction(event -> updateScale(scale + 2));
+        ToggleButton moveNode = new ToggleButton("Move Node");
+        moveNode.setToggleGroup(tools);
+        moveNode.setOnAction(event -> setTool(CanvasPane.Mode.MOVE_NODE));
 
-        Button zoomOut = new Button("Zoom -");
-        zoomOut.setOnAction(event -> updateScale(Math.max(2, scale - 2)));
+        ToggleButton deleteNode = new ToggleButton("Delete Nodes");
+        deleteNode.setToggleGroup(tools);
+        deleteNode.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_NODE));
 
-        return new ToolBar(addNode, connectNodes, new Separator(), zoomIn, zoomOut);
+        ToggleButton deleteGuide = new ToggleButton("Delete Guides");
+        deleteGuide.setToggleGroup(tools);
+        deleteGuide.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_GUIDE));
+
+        return new ToolBar(drawShape, moveNode, deleteNode, deleteGuide);
     }
 
     private VBox buildSidebar() {
         VBox sidebar = new VBox(10);
         sidebar.setPadding(new Insets(10));
         sidebar.setPrefWidth(320);
+        sidebar.setMinWidth(320);
+        sidebar.setMaxWidth(320);
         sidebar.setStyle("-fx-background-color: #f5f5f5;");
 
         Label materialsLabel = new Label("Materials");
         materialsLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
 
         materialsList.setCellFactory(listView -> new ListCell<>() {
+            private final ImageView thumbnail = new ImageView();
+
+            {
+                thumbnail.setFitWidth(32);
+                thumbnail.setFitHeight(32);
+                thumbnail.setPreserveRatio(true);
+            }
+
             @Override
             protected void updateItem(Material item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.getName() + " (" + item.getType() + ")");
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                setText(item.getName() + " (" + item.getType() + ")");
+                String imagePath = item.getImagePath();
+                if (imagePath != null && !imagePath.isBlank()) {
+                    File file = new File(imagePath);
+                    if (file.exists()) {
+                        thumbnail.setImage(new Image(file.toURI().toString(), 32, 32, true, true));
+                        setGraphic(thumbnail);
+                        return;
+                    }
+                }
+                setGraphic(null);
             }
         });
 
@@ -183,6 +255,19 @@ public class MainView {
                 selectDefaultMaterialById(id);
             });
         });
+        Button editMaterial = new Button("Edit Material");
+        editMaterial.setOnAction(event -> {
+            Material selected = materialsList.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                return;
+            }
+            MaterialDialog dialog = new MaterialDialog(sessionManager.getCurrentUser().getId(), selected);
+            dialog.showAndWait().ifPresent(material -> {
+                materialDao.update(material);
+                refreshMaterials();
+                selectDefaultMaterialById(material.getId());
+            });
+        });
 
         Label defaultLabel = new Label("Default Material for Shapes");
         defaultMaterial.setOnAction(event -> recomputeShapes());
@@ -193,20 +278,50 @@ public class MainView {
         VBox summaryBox = new VBox(6, summaryList, totalCostLabel);
         VBox.setVgrow(summaryList, Priority.ALWAYS);
 
-        sidebar.getChildren().addAll(materialsLabel, materialsList, addMaterial, new Separator(),
-                defaultLabel, defaultMaterial, new Separator(), summaryLabel, summaryBox);
+        Label cutListLabel = new Label("Cut List");
+        cutListLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        VBox cutBox = new VBox(6, cutList);
+        VBox.setVgrow(cutList, Priority.ALWAYS);
+
+        Label sheetLabel = new Label("Sheet Planner");
+        sheetLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        VBox sheetBox = new VBox(6, sheetList);
+        VBox.setVgrow(sheetList, Priority.ALWAYS);
+
+        Label selectionLabel = new Label("Selection");
+        selectionLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
+        VBox selectionBox = new VBox(4, selectedShapeLabel, selectedShapeCostLabel);
+
+        sidebar.getChildren().addAll(materialsLabel, materialsList, addMaterial, editMaterial, new Separator(),
+                defaultLabel, defaultMaterial, new Separator(), summaryLabel, summaryBox,
+                new Separator(), cutListLabel, cutBox, new Separator(), sheetLabel, sheetBox,
+                new Separator(), selectionLabel, selectionBox);
         VBox.setVgrow(materialsList, Priority.ALWAYS);
         VBox.setVgrow(summaryBox, Priority.ALWAYS);
+        VBox.setVgrow(cutBox, Priority.ALWAYS);
+        VBox.setVgrow(sheetBox, Priority.ALWAYS);
         return sidebar;
     }
 
     private void loadUserData() {
         int userId = sessionManager.getCurrentUser().getId();
-        currentDocument = documentDao.findFirstByUser(userId)
-                .orElseGet(() -> new Document(documentDao.createDocument(userId, "Default Project"), userId, "Default Project"));
+        if (currentDocument == null) {
+            currentDocument = documentDao.findFirstByUser(userId)
+                    .orElseGet(() -> {
+                        int id = documentDao.createDocument(userId, "Default Project");
+                        return documentDao.findById(id, userId).orElse(null);
+                    });
+        }
+        if (currentDocument == null) {
+            return;
+        }
+        unitSystem = currentDocument.getUnitSystem();
         canvasPane.setNodes(nodeDao.findByDocument(currentDocument.getId()));
         canvasPane.setEdges(edgeDao.findByDocument(currentDocument.getId()));
-        canvasPane.setGuides(guideDao.findByDocument(currentDocument.getId()));
+        guides.clear();
+        guides.addAll(guideDao.findByDocument(currentDocument.getId()));
+        canvasPane.setGuides(guides);
+        canvasPane.setCanvasSizeCm(currentDocument.getWidthCm(), currentDocument.getHeightCm());
         refreshMaterials();
         recomputeShapes();
     }
@@ -233,31 +348,37 @@ public class MainView {
         if (currentDocument == null) {
             return;
         }
-        if (currentTool != CanvasPane.Mode.PEN) {
+        if (currentTool != CanvasPane.Mode.DRAW_SHAPE) {
             return;
         }
-        handleNodeCreate(cmPoint);
+        handleNodeCreate(clampToCanvas(applyGuideSnapping(cmPoint)));
     }
 
     private void handleNodeClick(int nodeId) {
         if (currentDocument == null) {
             return;
         }
-        if (currentTool == CanvasPane.Mode.SELECT) {
-            if (selectedNodeId != null && selectedNodeId != nodeId) {
-                handleEdgeCreate(selectedNodeId, nodeId);
-            }
-            selectedNodeId = nodeId;
-            canvasPane.setSelectedNode(nodeId);
+        if (currentTool == CanvasPane.Mode.DELETE_NODE) {
+            eraseNode(nodeId);
             return;
         }
-        if (currentTool == CanvasPane.Mode.PEN) {
-            if (selectedNodeId != null && selectedNodeId != nodeId) {
-                handleEdgeCreate(selectedNodeId, nodeId);
+        if (currentTool == CanvasPane.Mode.DRAW_SHAPE) {
+            if (lastDrawNodeId != null && lastDrawNodeId != nodeId) {
+                handleEdgeCreate(lastDrawNodeId, nodeId);
             }
-            selectedNodeId = nodeId;
-            canvasPane.setSelectedNode(nodeId);
+            lastDrawNodeId = nodeId;
         }
+        selectedNodeId = nodeId;
+        selectedShapeId = null;
+        canvasPane.setSelectedNode(nodeId);
+        updateSelectedShapeSummary();
+    }
+
+    private void handleShapeClick(int shapeId) {
+        selectedShapeId = shapeId;
+        selectedNodeId = null;
+        canvasPane.setSelectedShape(shapeId);
+        updateSelectedShapeSummary();
     }
 
     private void handleNodeCreate(Point2D cmPoint) {
@@ -266,6 +387,10 @@ public class MainView {
         }
         var node = nodeDao.create(currentDocument.getId(), cmPoint.getX(), cmPoint.getY());
         canvasPane.addNode(node);
+        if (lastDrawNodeId != null) {
+            handleEdgeCreate(lastDrawNodeId, node.getId());
+        }
+        lastDrawNodeId = node.getId();
         recomputeShapes();
     }
 
@@ -279,7 +404,7 @@ public class MainView {
     }
 
     private void updateScale(double newScale) {
-        scale = newScale;
+        scale = clampScale(newScale);
         canvasPane.setScale(scale);
         horizontalRuler.setScale(scale);
         verticalRuler.setScale(scale);
@@ -288,10 +413,50 @@ public class MainView {
     private void setTool(CanvasPane.Mode mode) {
         currentTool = mode;
         canvasPane.setMode(mode);
-        if (mode != CanvasPane.Mode.PEN) {
+        if (mode != CanvasPane.Mode.DRAW_SHAPE) {
+            lastDrawNodeId = null;
+        }
+        if (mode != CanvasPane.Mode.MOVE_NODE) {
             selectedNodeId = null;
             canvasPane.clearSelection();
         }
+        if (mode == CanvasPane.Mode.DELETE_NODE || mode == CanvasPane.Mode.DELETE_GUIDE) {
+            selectedShapeId = null;
+            updateSelectedShapeSummary();
+        }
+    }
+
+    private void handleNodeMoveFinished(int nodeId, Point2D cmPoint) {
+        Point2D snapped = clampToCanvas(applyGuideSnapping(cmPoint));
+        nodeDao.updatePosition(nodeId, snapped.getX(), snapped.getY());
+        canvasPane.setNodes(nodeDao.findByDocument(currentDocument.getId()));
+        recomputeShapes();
+    }
+
+    private void eraseNode(int nodeId) {
+        edgeDao.deleteByNode(nodeId);
+        nodeDao.delete(nodeId);
+        canvasPane.setNodes(nodeDao.findByDocument(currentDocument.getId()));
+        canvasPane.setEdges(edgeDao.findByDocument(currentDocument.getId()));
+        recomputeShapes();
+    }
+
+    private void handleDeleteNodes(List<Integer> nodeIds) {
+        for (Integer nodeId : nodeIds) {
+            edgeDao.deleteByNode(nodeId);
+            nodeDao.delete(nodeId);
+        }
+        canvasPane.setNodes(nodeDao.findByDocument(currentDocument.getId()));
+        canvasPane.setEdges(edgeDao.findByDocument(currentDocument.getId()));
+        recomputeShapes();
+    }
+
+    private void handleDeleteGuides(List<Integer> guideIds) {
+        for (Integer guideId : guideIds) {
+            guideDao.deleteById(guideId);
+        }
+        guides.removeIf(guide -> guideIds.contains(guide.getId()));
+        canvasPane.setGuides(guides);
     }
 
     private void setupGuideDragging() {
@@ -302,8 +467,12 @@ public class MainView {
         canvasPane.getChildren().add(guidePreview);
 
         horizontalRuler.addEventHandler(MouseEvent.MOUSE_PRESSED, event -> {
+            Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
             guidePreview.setVisible(true);
-            guidePreview.setStartY(event.getSceneY());
+            guidePreview.setStartX(0);
+            guidePreview.setEndX(canvasPane.getWidth());
+            guidePreview.setStartY(local.getY());
+            guidePreview.setEndY(local.getY());
         });
 
         horizontalRuler.addEventHandler(MouseEvent.MOUSE_DRAGGED, event -> {
@@ -318,13 +487,22 @@ public class MainView {
             Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
             guidePreview.setVisible(false);
             if (local.getY() >= 0 && local.getY() <= canvasPane.getHeight()) {
-                double positionCm = local.getY() / scale;
+                Point2D cmPoint = canvasPane.toCanvasCm(local);
+                double positionCm = cmPoint.getY();
                 Guide guide = guideDao.create(currentDocument.getId(), Guide.Orientation.HORIZONTAL, positionCm);
+                guides.add(guide);
                 canvasPane.addGuide(guide);
             }
         });
 
-        verticalRuler.addEventHandler(MouseEvent.MOUSE_PRESSED, event -> guidePreview.setVisible(true));
+        verticalRuler.addEventHandler(MouseEvent.MOUSE_PRESSED, event -> {
+            Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
+            guidePreview.setVisible(true);
+            guidePreview.setStartY(0);
+            guidePreview.setEndY(canvasPane.getHeight());
+            guidePreview.setStartX(local.getX());
+            guidePreview.setEndX(local.getX());
+        });
 
         verticalRuler.addEventHandler(MouseEvent.MOUSE_DRAGGED, event -> {
             Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
@@ -338,8 +516,10 @@ public class MainView {
             Point2D local = canvasPane.sceneToLocal(event.getSceneX(), event.getSceneY());
             guidePreview.setVisible(false);
             if (local.getX() >= 0 && local.getX() <= canvasPane.getWidth()) {
-                double positionCm = local.getX() / scale;
+                Point2D cmPoint = canvasPane.toCanvasCm(local);
+                double positionCm = cmPoint.getX();
                 Guide guide = guideDao.create(currentDocument.getId(), Guide.Orientation.VERTICAL, positionCm);
+                guides.add(guide);
                 canvasPane.addGuide(guide);
             }
         });
@@ -349,28 +529,253 @@ public class MainView {
         if (currentDocument == null) {
             return;
         }
-        List<ShapePolygon> shapes = geometryService.buildShapes(currentDocument.getId(),
+        List<ShapePolygon> computed = geometryService.buildShapes(currentDocument.getId(),
                 nodeDao.findByDocument(currentDocument.getId()),
                 edgeDao.findByDocument(currentDocument.getId()));
         Material material = defaultMaterial.getSelectionModel().getSelectedItem();
-        List<ShapePolygon> assigned = shapes.stream()
+        List<ShapePolygon> assigned = computed.stream()
                 .map(shape -> new ShapePolygon(-1, shape.getDocumentId(),
                         material == null ? null : material.getId(), shape.getQuantity(), shape.getNodeIds(),
                         shape.getNodes(), shape.getAreaCm2(), shape.getPerimeterCm()))
                 .toList();
         shapeDao.replaceShapes(currentDocument.getId(), assigned);
+        loadShapesFromDb();
+        selectedShapeId = null;
+        canvasPane.clearSelection();
+        updateSelectedShapeSummary();
         updateSummary();
+        updateCutList();
+    }
+
+    private void handleZoomScroll(ScrollEvent event) {
+        if (event.getDeltaY() == 0) {
+            return;
+        }
+        double factor = event.getDeltaY() > 0 ? 1.1 : 0.9;
+        updateScale(clampScale(scale * factor));
+        event.consume();
+    }
+
+    private double clampScale(double value) {
+        return Math.max(2.0, Math.min(80.0, value));
+    }
+
+    private Point2D applyGuideSnapping(Point2D cmPoint) {
+        if (guides.isEmpty()) {
+            return cmPoint;
+        }
+        double thresholdPx = 8.0;
+        double thresholdCm = thresholdPx / scale;
+        double x = cmPoint.getX();
+        double y = cmPoint.getY();
+        Double snapX = null;
+        Double snapY = null;
+        for (Guide guide : guides) {
+            if (guide.getOrientation() == Guide.Orientation.VERTICAL) {
+                double dist = Math.abs(x - guide.getPositionCm());
+                if (dist <= thresholdCm) {
+                    snapX = guide.getPositionCm();
+                }
+            } else {
+                double dist = Math.abs(y - guide.getPositionCm());
+                if (dist <= thresholdCm) {
+                    snapY = guide.getPositionCm();
+                }
+            }
+        }
+        if (snapX != null) {
+            x = snapX;
+        }
+        if (snapY != null) {
+            y = snapY;
+        }
+        return new Point2D(x, y);
+    }
+
+    private void loadShapesFromDb() {
+        shapes.clear();
+        List<ShapePolygon> stored = shapeDao.findByDocument(currentDocument.getId());
+        List<NodePoint> nodes = nodeDao.findByDocument(currentDocument.getId());
+        Map<Integer, NodePoint> nodeMap = new HashMap<>();
+        for (NodePoint node : nodes) {
+            nodeMap.put(node.getId(), node);
+        }
+        for (ShapePolygon storedShape : stored) {
+            ShapePolygon hydrated = geometryService.buildShapeFromCycle(
+                    storedShape.getDocumentId(),
+                    storedShape.getMaterialId(),
+                    storedShape.getNodeIds(),
+                    nodeMap
+            );
+            shapes.add(new ShapePolygon(
+                    storedShape.getId(),
+                    hydrated.getDocumentId(),
+                    hydrated.getMaterialId(),
+                    hydrated.getQuantity(),
+                    hydrated.getNodeIds(),
+                    hydrated.getNodes(),
+                    storedShape.getAreaCm2(),
+                    storedShape.getPerimeterCm()
+            ));
+        }
+        canvasPane.setShapes(shapes);
+    }
+
+    private void updateSelectedShapeSummary() {
+        if (selectedShapeId == null) {
+            selectedShapeLabel.setText("Selected shape: none");
+            selectedShapeCostLabel.setText("");
+            return;
+        }
+        ShapePolygon shape = findShapeById(selectedShapeId);
+        if (shape == null) {
+            selectedShapeLabel.setText("Selected shape: none");
+            selectedShapeCostLabel.setText("");
+            return;
+        }
+        double areaCm2 = shape.getAreaCm2();
+        double areaDisplay = UnitConverter.fromCm(Math.sqrt(areaCm2), unitSystem);
+        double areaDisplay2 = areaDisplay * areaDisplay;
+        String unitLabel = unitSystem == UnitSystem.IN ? "in" : "cm";
+        selectedShapeLabel.setText(String.format("Selected shape: %.2f %s2", areaDisplay2, unitLabel));
+        if (shape.getMaterialId() == null) {
+            selectedShapeCostLabel.setText("Material: none");
+            return;
+        }
+        Material material = materialDao.findById(shape.getMaterialId()).orElse(null);
+        if (material == null) {
+            selectedShapeCostLabel.setText("Material: missing");
+            return;
+        }
+        EstimationSummary summary = estimationService.estimateMaterial(material, List.of(shape), 10.0);
+        if (summary == null) {
+            selectedShapeCostLabel.setText("Material: " + material.getName());
+            return;
+        }
+        selectedShapeCostLabel.setText(summary.getDetails() + String.format(" ($%.2f)", summary.getCost()));
+    }
+
+    private ShapePolygon findShapeById(int shapeId) {
+        for (ShapePolygon shape : shapes) {
+            if (shape.getId() == shapeId) {
+                return shape;
+            }
+        }
+        return null;
     }
 
     private void updateSummary() {
         summaryList.getItems().clear();
+        sheetList.getItems().clear();
         double total = 0;
         List<EstimationSummary> summaries = estimationService.estimate(currentDocument.getId(), 10.0);
         for (EstimationSummary summary : summaries) {
             summaryList.getItems().add(summary.getMaterialName() + " - " + summary.getDetails()
                     + String.format(" ($%.2f)", summary.getCost()));
             total += summary.getCost();
+            if (summary.getDetails().startsWith("Sheets:")) {
+                sheetList.getItems().add(summary.getMaterialName() + " - " + summary.getDetails());
+            }
         }
         totalCostLabel.setText(String.format("Total: $%.2f", total));
+    }
+
+    private void exportPdf() {
+        if (currentDocument == null) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Export PDF");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF Files", "*.pdf"));
+        File target = chooser.showSaveDialog(root.getScene().getWindow());
+        if (target == null) {
+            return;
+        }
+        try {
+            pdfExportService.export(
+                    currentDocument,
+                    nodeDao.findByDocument(currentDocument.getId()),
+                    edgeDao.findByDocument(currentDocument.getId()),
+                    target
+            );
+        } catch (Exception exception) {
+            exception.printStackTrace();
+        }
+    }
+
+    private void updateCutList() {
+        cutList.getItems().clear();
+        if (currentDocument == null) {
+            return;
+        }
+        String unitLabel = unitSystem == UnitSystem.IN ? "in" : "cm";
+        double kerfCm = currentDocument.getKerfMm() / 10.0;
+        for (ShapePolygon shape : shapes) {
+            if (shape.getNodes() == null || shape.getNodes().isEmpty()) {
+                continue;
+            }
+            double minX = Double.MAX_VALUE;
+            double maxX = Double.MIN_VALUE;
+            double minY = Double.MAX_VALUE;
+            double maxY = Double.MIN_VALUE;
+            for (NodePoint node : shape.getNodes()) {
+                minX = Math.min(minX, node.getXCm());
+                maxX = Math.max(maxX, node.getXCm());
+                minY = Math.min(minY, node.getYCm());
+                maxY = Math.max(maxY, node.getYCm());
+            }
+            double widthCm = (maxX - minX) + kerfCm;
+            double heightCm = (maxY - minY) + kerfCm;
+            double width = UnitConverter.fromCm(widthCm, unitSystem);
+            double height = UnitConverter.fromCm(heightCm, unitSystem);
+            String materialName = "No material";
+            String grain = "";
+            if (shape.getMaterialId() != null) {
+                Material mat = materialDao.findById(shape.getMaterialId()).orElse(null);
+                if (mat != null) {
+                    materialName = mat.getName();
+                    grain = " | grain: " + mat.getGrainDirection().name().toLowerCase();
+                }
+            }
+            cutList.getItems().add(String.format("%s: %.2f x %.2f %s (qty %d)%s",
+                    materialName, width, height, unitLabel, shape.getQuantity(), grain));
+        }
+    }
+
+    private void openCanvasSettings() {
+        if (currentDocument == null) {
+            return;
+        }
+        ProjectDialog dialog = new ProjectDialog("Canvas Settings", currentDocument);
+        dialog.showAndWait().ifPresent(settings -> {
+            documentDao.updateSettings(currentDocument.getId(), settings.getWidthCm(), settings.getHeightCm(),
+                    settings.getKerfMm(), settings.getUnitSystem());
+            currentDocument = documentDao.findById(currentDocument.getId(), sessionManager.getCurrentUser().getId()).orElse(currentDocument);
+            unitSystem = settings.getUnitSystem();
+            canvasPane.setCanvasSizeCm(settings.getWidthCm(), settings.getHeightCm());
+            recomputeShapes();
+        });
+    }
+
+    private void toggleUnits() {
+        if (currentDocument == null) {
+            return;
+        }
+        UnitSystem next = unitSystem == UnitSystem.CM ? UnitSystem.IN : UnitSystem.CM;
+        documentDao.updateSettings(currentDocument.getId(), currentDocument.getWidthCm(), currentDocument.getHeightCm(),
+                currentDocument.getKerfMm(), next);
+        unitSystem = next;
+        currentDocument = documentDao.findById(currentDocument.getId(), sessionManager.getCurrentUser().getId()).orElse(currentDocument);
+        updateSelectedShapeSummary();
+        updateCutList();
+    }
+
+    private Point2D clampToCanvas(Point2D cmPoint) {
+        if (currentDocument == null) {
+            return cmPoint;
+        }
+        double x = Math.min(Math.max(0, cmPoint.getX()), currentDocument.getWidthCm());
+        double y = Math.min(Math.max(0, cmPoint.getY()), currentDocument.getHeightCm());
+        return new Point2D(x, y);
     }
 }

@@ -61,7 +61,7 @@ public class SignupView {
             }
             Role role = userDao.countUsers() == 0 ? Role.ADMIN : Role.USER;
             authService.register(username, password, role);
-            navigator.showMain();
+            navigator.showProjects();
         });
 
         Button loginLink = new Button("Back to login");

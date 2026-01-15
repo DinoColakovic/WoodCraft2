@@ -68,9 +68,15 @@ public class SceneNavigator {
         stage.setScene(scene);
     }
 
-    public void showMain() {
+    public void showProjects() {
+        ProjectListView view = new ProjectListView(sessionManager, documentDao, this);
+        Scene scene = new Scene(view.getRoot(), 620, 520);
+        stage.setScene(scene);
+    }
+
+    public void showMain(int documentId) {
         MainView view = new MainView(sessionManager, authService, userDao, materialDao, documentDao, nodeDao, edgeDao,
-                guideDao, shapeDao, geometryService, estimationService, this);
+                guideDao, shapeDao, geometryService, estimationService, this, documentId);
         Scene scene = new Scene(view.getRoot(), 1200, 800);
         stage.setScene(scene);
     }

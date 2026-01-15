@@ -10,10 +10,14 @@ public class Material {
     private final double sheetPrice;
     private final double pricePerSquareMeter;
     private final double pricePerLinearMeter;
+    private final String imagePath;
+    private final GrainDirection grainDirection;
+    private final double edgeBandingCostPerMeter;
     private String colorHex = "#8FAADC";
 
     public Material(int id, int userId, String name, MaterialType type, double sheetWidthCm, double sheetHeightCm,
-                    double sheetPrice, double pricePerSquareMeter, double pricePerLinearMeter) {
+                    double sheetPrice, double pricePerSquareMeter, double pricePerLinearMeter, String imagePath,
+                    GrainDirection grainDirection, double edgeBandingCostPerMeter) {
         this.id = id;
         this.userId = userId;
         this.name = name;
@@ -23,6 +27,9 @@ public class Material {
         this.sheetPrice = sheetPrice;
         this.pricePerSquareMeter = pricePerSquareMeter;
         this.pricePerLinearMeter = pricePerLinearMeter;
+        this.imagePath = imagePath;
+        this.grainDirection = grainDirection == null ? GrainDirection.NONE : grainDirection;
+        this.edgeBandingCostPerMeter = edgeBandingCostPerMeter;
     }
 
     public int getId() {
@@ -59,6 +66,18 @@ public class Material {
 
     public double getPricePerLinearMeter() {
         return pricePerLinearMeter;
+    }
+
+    public String getImagePath() {
+        return imagePath;
+    }
+
+    public GrainDirection getGrainDirection() {
+        return grainDirection;
+    }
+
+    public double getEdgeBandingCostPerMeter() {
+        return edgeBandingCostPerMeter;
     }
 
     public double getSheetAreaCm2() {

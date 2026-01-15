@@ -41,6 +41,19 @@ public class NodeDao {
         }
     }
 
+    public void updatePosition(int nodeId, double xCm, double yCm) {
+        String sql = "UPDATE nodes SET x_cm = ?, y_cm = ? WHERE id = ?";
+        try (Connection connection = Database.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setDouble(1, xCm);
+            statement.setDouble(2, yCm);
+            statement.setInt(3, nodeId);
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new IllegalStateException("Failed to update node position", exception);
+        }
+    }
+
     public List<NodePoint> findByDocument(int documentId) {
         String sql = "SELECT id, document_id, x_cm, y_cm FROM nodes WHERE document_id = ?";
         List<NodePoint> nodes = new ArrayList<>();
