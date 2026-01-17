@@ -20,29 +20,44 @@ import unze.ptf.woodcraft.woodcraft.model.User;
 
 public class UserManagementDialog extends Dialog<Void> {
     public UserManagementDialog(UserDao userDao) {
-        setTitle("User Management");
-        setHeaderText("Create users, reset passwords, and assign roles.");
-        getDialogPane().getButtonTypes().add(javafx.scene.control.ButtonType.CLOSE);
+        setTitle("Upravljanje korisnicima");
+        setHeaderText("Izrada korisnika, reset lozinki i dodjela uloga.");
+        getDialogPane().getButtonTypes().add(new javafx.scene.control.ButtonType("Zatvori",
+                javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE));
 
         ListView<User> userList = new ListView<>();
         userList.setCellFactory(listView -> new ListCell<>() {
             @Override
             protected void updateItem(User item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.getUsername() + " (" + item.getRole() + ")");
+                setText(empty || item == null ? null : item.getUsername() + " (" + roleLabel(item.getRole()) + ")");
             }
         });
         userList.getItems().setAll(userDao.findAll());
 
         TextField usernameField = new TextField();
-        usernameField.setPromptText("Username");
+        usernameField.setPromptText("Korisnicko ime");
         PasswordField passwordField = new PasswordField();
-        passwordField.setPromptText("Password");
+        passwordField.setPromptText("Lozinka");
         ComboBox<Role> roleBox = new ComboBox<>();
         roleBox.getItems().addAll(Role.USER, Role.ADMIN);
         roleBox.getSelectionModel().select(Role.USER);
+        roleBox.setCellFactory(listView -> new ListCell<>() {
+            @Override
+            protected void updateItem(Role item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : roleLabel(item));
+            }
+        });
+        roleBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Role item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : roleLabel(item));
+            }
+        });
 
-        Button createUser = new Button("Create User");
+        Button createUser = new Button("Izradi korisnika");
         createUser.setOnAction(event -> {
             String username = usernameField.getText().trim();
             String password = passwordField.getText();
@@ -60,8 +75,8 @@ public class UserManagementDialog extends Dialog<Void> {
         });
 
         PasswordField resetPasswordField = new PasswordField();
-        resetPasswordField.setPromptText("New password");
-        Button resetPassword = new Button("Reset Password");
+        resetPasswordField.setPromptText("Nova lozinka");
+        Button resetPassword = new Button("Reset lozinke");
         resetPassword.setOnAction(event -> {
             User user = userList.getSelectionModel().getSelectedItem();
             if (user == null || resetPasswordField.getText().isEmpty()) {
@@ -74,7 +89,21 @@ public class UserManagementDialog extends Dialog<Void> {
 
         ComboBox<Role> updateRoleBox = new ComboBox<>();
         updateRoleBox.getItems().addAll(Role.USER, Role.ADMIN);
-        Button updateRole = new Button("Update Role");
+        updateRoleBox.setCellFactory(listView -> new ListCell<>() {
+            @Override
+            protected void updateItem(Role item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : roleLabel(item));
+            }
+        });
+        updateRoleBox.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Role item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : roleLabel(item));
+            }
+        });
+        Button updateRole = new Button("Azuriraj ulogu");
         updateRole.setOnAction(event -> {
             User user = userList.getSelectionModel().getSelectedItem();
             Role role = updateRoleBox.getSelectionModel().getSelectedItem();
@@ -88,18 +117,18 @@ public class UserManagementDialog extends Dialog<Void> {
         GridPane createGrid = new GridPane();
         createGrid.setHgap(10);
         createGrid.setVgap(10);
-        createGrid.addRow(0, new Label("New user"));
-        createGrid.addRow(1, new Label("Username"), usernameField);
-        createGrid.addRow(2, new Label("Password"), passwordField);
-        createGrid.addRow(3, new Label("Role"), roleBox);
+        createGrid.addRow(0, new Label("Novi korisnik"));
+        createGrid.addRow(1, new Label("Korisnicko ime"), usernameField);
+        createGrid.addRow(2, new Label("Lozinka"), passwordField);
+        createGrid.addRow(3, new Label("Uloga"), roleBox);
         createGrid.add(createUser, 1, 4);
 
         GridPane manageGrid = new GridPane();
         manageGrid.setHgap(10);
         manageGrid.setVgap(10);
-        manageGrid.addRow(0, new Label("Selected user"));
-        manageGrid.addRow(1, new Label("New password"), resetPasswordField, resetPassword);
-        manageGrid.addRow(2, new Label("Role"), updateRoleBox, updateRole);
+        manageGrid.addRow(0, new Label("Odabrani korisnik"));
+        manageGrid.addRow(1, new Label("Nova lozinka"), resetPasswordField, resetPassword);
+        manageGrid.addRow(2, new Label("Uloga"), updateRoleBox, updateRole);
 
         VBox right = new VBox(15, createGrid, manageGrid);
         right.setPadding(new Insets(10));
@@ -109,5 +138,9 @@ public class UserManagementDialog extends Dialog<Void> {
         HBox.setHgrow(userList, Priority.ALWAYS);
 
         getDialogPane().setContent(content);
+    }
+
+    private String roleLabel(Role role) {
+        return role == Role.ADMIN ? "ADMIN" : "KORISNIK";
     }
 }

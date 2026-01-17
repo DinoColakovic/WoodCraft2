@@ -35,6 +35,7 @@ import unze.ptf.woodcraft.woodcraft.dao.UserDao;
 import unze.ptf.woodcraft.woodcraft.model.Document;
 import unze.ptf.woodcraft.woodcraft.model.Guide;
 import unze.ptf.woodcraft.woodcraft.model.Material;
+import unze.ptf.woodcraft.woodcraft.model.MaterialType;
 import unze.ptf.woodcraft.woodcraft.model.NodePoint;
 import unze.ptf.woodcraft.woodcraft.model.Role;
 import unze.ptf.woodcraft.woodcraft.model.ShapePolygon;
@@ -79,8 +80,8 @@ public class MainView {
     private final ListView<String> summaryList = new ListView<>();
     private final ListView<String> cutList = new ListView<>();
     private final ListView<String> sheetList = new ListView<>();
-    private final Label totalCostLabel = new Label("Total: $0.00");
-    private final Label selectedShapeLabel = new Label("Selected shape: none");
+    private final Label totalCostLabel = new Label("Ukupno: $0.00");
+    private final Label selectedShapeLabel = new Label("Odabrani oblik: nema");
     private final Label selectedShapeCostLabel = new Label();
 
     private final List<ShapePolygon> shapes = new ArrayList<>();
@@ -149,9 +150,9 @@ public class MainView {
     }
 
     private MenuBar buildMenu() {
-        Menu file = new Menu("File");
-        MenuItem logout = new MenuItem("Logout");
-        MenuItem exportPdf = new MenuItem("Export PDF");
+        Menu file = new Menu("Datoteka");
+        MenuItem logout = new MenuItem("Odjava");
+        MenuItem exportPdf = new MenuItem("Izvoz PDF");
         logout.setOnAction(event -> {
             authService.logout();
             navigator.showLogin();
@@ -159,20 +160,20 @@ public class MainView {
         exportPdf.setOnAction(event -> exportPdf());
         file.getItems().addAll(exportPdf, logout);
 
-        Menu edit = new Menu("Edit");
-        MenuItem editCanvas = new MenuItem("Canvas Settings");
+        Menu edit = new Menu("Uredi");
+        MenuItem editCanvas = new MenuItem("Postavke platna");
         editCanvas.setOnAction(event -> openCanvasSettings());
         edit.getItems().add(editCanvas);
-        Menu view = new Menu("View");
-        MenuItem unitsToggle = new MenuItem("Toggle Units (cm/in)");
+        Menu view = new Menu("Prikaz");
+        MenuItem unitsToggle = new MenuItem("Promijeni jedinice (cm/in)");
         unitsToggle.setOnAction(event -> toggleUnits());
         view.getItems().add(unitsToggle);
-        Menu window = new Menu("Window");
-        Menu help = new Menu("Help");
+        Menu window = new Menu("Prozor");
+        Menu help = new Menu("Pomoc");
 
         if (sessionManager.getCurrentUser() != null && sessionManager.getCurrentUser().getRole() == Role.ADMIN) {
             Menu admin = new Menu("Admin");
-            MenuItem manageUsers = new MenuItem("User Management");
+            MenuItem manageUsers = new MenuItem("Upravljanje korisnicima");
             manageUsers.setOnAction(event -> new UserManagementDialog(userDao).showAndWait());
             admin.getItems().add(manageUsers);
             return new MenuBar(file, edit, view, window, help, admin);
@@ -184,20 +185,20 @@ public class MainView {
     private ToolBar buildToolBar() {
         ToggleGroup tools = new ToggleGroup();
 
-        ToggleButton drawShape = new ToggleButton("Draw Shape");
+        ToggleButton drawShape = new ToggleButton("Crtaj oblik");
         drawShape.setToggleGroup(tools);
         drawShape.setSelected(true);
         drawShape.setOnAction(event -> setTool(CanvasPane.Mode.DRAW_SHAPE));
 
-        ToggleButton moveNode = new ToggleButton("Move Node");
+        ToggleButton moveNode = new ToggleButton("Pomakni cvor");
         moveNode.setToggleGroup(tools);
         moveNode.setOnAction(event -> setTool(CanvasPane.Mode.MOVE_NODE));
 
-        ToggleButton deleteNode = new ToggleButton("Delete Nodes");
+        ToggleButton deleteNode = new ToggleButton("Brisi cvorove");
         deleteNode.setToggleGroup(tools);
         deleteNode.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_NODE));
 
-        ToggleButton deleteGuide = new ToggleButton("Delete Guides");
+        ToggleButton deleteGuide = new ToggleButton("Brisi vodilice");
         deleteGuide.setToggleGroup(tools);
         deleteGuide.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_GUIDE));
 
@@ -212,7 +213,7 @@ public class MainView {
         sidebar.setMaxWidth(320);
         sidebar.setStyle("-fx-background-color: #f5f5f5;");
 
-        Label materialsLabel = new Label("Materials");
+        Label materialsLabel = new Label("Materijali");
         materialsLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
 
         materialsList.setCellFactory(listView -> new ListCell<>() {
@@ -232,7 +233,7 @@ public class MainView {
                     setGraphic(null);
                     return;
                 }
-                setText(item.getName() + " (" + item.getType() + ")");
+                setText(item.getName() + " (" + materialTypeLabel(item.getType()) + ")");
                 String imagePath = item.getImagePath();
                 if (imagePath != null && !imagePath.isBlank()) {
                     File file = new File(imagePath);
@@ -246,7 +247,7 @@ public class MainView {
             }
         });
 
-        Button addMaterial = new Button("Add Material");
+        Button addMaterial = new Button("Dodaj materijal");
         addMaterial.setOnAction(event -> {
             MaterialDialog dialog = new MaterialDialog(sessionManager.getCurrentUser().getId());
             dialog.showAndWait().ifPresent(material -> {
@@ -255,7 +256,7 @@ public class MainView {
                 selectDefaultMaterialById(id);
             });
         });
-        Button editMaterial = new Button("Edit Material");
+        Button editMaterial = new Button("Uredi materijal");
         editMaterial.setOnAction(event -> {
             Material selected = materialsList.getSelectionModel().getSelectedItem();
             if (selected == null) {
@@ -269,26 +270,40 @@ public class MainView {
             });
         });
 
-        Label defaultLabel = new Label("Default Material for Shapes");
+        Label defaultLabel = new Label("Zadani materijal za oblike");
         defaultMaterial.setOnAction(event -> recomputeShapes());
+        defaultMaterial.setCellFactory(listView -> new ListCell<>() {
+            @Override
+            protected void updateItem(Material item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.getName() + " (" + materialTypeLabel(item.getType()) + ")");
+            }
+        });
+        defaultMaterial.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(Material item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.getName() + " (" + materialTypeLabel(item.getType()) + ")");
+            }
+        });
 
-        Label summaryLabel = new Label("Summary");
+        Label summaryLabel = new Label("Sazetak");
         summaryLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
 
         VBox summaryBox = new VBox(6, summaryList, totalCostLabel);
         VBox.setVgrow(summaryList, Priority.ALWAYS);
 
-        Label cutListLabel = new Label("Cut List");
+        Label cutListLabel = new Label("Lista rezova");
         cutListLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
         VBox cutBox = new VBox(6, cutList);
         VBox.setVgrow(cutList, Priority.ALWAYS);
 
-        Label sheetLabel = new Label("Sheet Planner");
+        Label sheetLabel = new Label("Plan ploca");
         sheetLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
         VBox sheetBox = new VBox(6, sheetList);
         VBox.setVgrow(sheetList, Priority.ALWAYS);
 
-        Label selectionLabel = new Label("Selection");
+        Label selectionLabel = new Label("Odabir");
         selectionLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
         VBox selectionBox = new VBox(4, selectedShapeLabel, selectedShapeCostLabel);
 
@@ -308,7 +323,7 @@ public class MainView {
         if (currentDocument == null) {
             currentDocument = documentDao.findFirstByUser(userId)
                     .orElseGet(() -> {
-                        int id = documentDao.createDocument(userId, "Default Project");
+                        int id = documentDao.createDocument(userId, "Zadani projekt");
                         return documentDao.findById(id, userId).orElse(null);
                     });
         }
@@ -431,6 +446,9 @@ public class MainView {
         nodeDao.updatePosition(nodeId, snapped.getX(), snapped.getY());
         canvasPane.setNodes(nodeDao.findByDocument(currentDocument.getId()));
         recomputeShapes();
+        if (currentTool == CanvasPane.Mode.MOVE_NODE) {
+            canvasPane.setSelectedNode(nodeId);
+        }
     }
 
     private void eraseNode(int nodeId) {
@@ -623,13 +641,13 @@ public class MainView {
 
     private void updateSelectedShapeSummary() {
         if (selectedShapeId == null) {
-            selectedShapeLabel.setText("Selected shape: none");
+            selectedShapeLabel.setText("Odabrani oblik: nema");
             selectedShapeCostLabel.setText("");
             return;
         }
         ShapePolygon shape = findShapeById(selectedShapeId);
         if (shape == null) {
-            selectedShapeLabel.setText("Selected shape: none");
+            selectedShapeLabel.setText("Odabrani oblik: nema");
             selectedShapeCostLabel.setText("");
             return;
         }
@@ -637,19 +655,19 @@ public class MainView {
         double areaDisplay = UnitConverter.fromCm(Math.sqrt(areaCm2), unitSystem);
         double areaDisplay2 = areaDisplay * areaDisplay;
         String unitLabel = unitSystem == UnitSystem.IN ? "in" : "cm";
-        selectedShapeLabel.setText(String.format("Selected shape: %.2f %s2", areaDisplay2, unitLabel));
+        selectedShapeLabel.setText(String.format("Odabrani oblik: %.2f %s2", areaDisplay2, unitLabel));
         if (shape.getMaterialId() == null) {
-            selectedShapeCostLabel.setText("Material: none");
+            selectedShapeCostLabel.setText("Materijal: nema");
             return;
         }
         Material material = materialDao.findById(shape.getMaterialId()).orElse(null);
         if (material == null) {
-            selectedShapeCostLabel.setText("Material: missing");
+            selectedShapeCostLabel.setText("Materijal: nedostaje");
             return;
         }
         EstimationSummary summary = estimationService.estimateMaterial(material, List.of(shape), 10.0);
         if (summary == null) {
-            selectedShapeCostLabel.setText("Material: " + material.getName());
+            selectedShapeCostLabel.setText("Materijal: " + material.getName());
             return;
         }
         selectedShapeCostLabel.setText(summary.getDetails() + String.format(" ($%.2f)", summary.getCost()));
@@ -673,11 +691,11 @@ public class MainView {
             summaryList.getItems().add(summary.getMaterialName() + " - " + summary.getDetails()
                     + String.format(" ($%.2f)", summary.getCost()));
             total += summary.getCost();
-            if (summary.getDetails().startsWith("Sheets:")) {
+            if (summary.getDetails().startsWith("Ploce:")) {
                 sheetList.getItems().add(summary.getMaterialName() + " - " + summary.getDetails());
             }
         }
-        totalCostLabel.setText(String.format("Total: $%.2f", total));
+        totalCostLabel.setText(String.format("Ukupno: $%.2f", total));
     }
 
     private void exportPdf() {
@@ -685,8 +703,8 @@ public class MainView {
             return;
         }
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Export PDF");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF Files", "*.pdf"));
+        chooser.setTitle("Izvoz PDF");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF datoteke", "*.pdf"));
         File target = chooser.showSaveDialog(root.getScene().getWindow());
         if (target == null) {
             return;
@@ -728,16 +746,16 @@ public class MainView {
             double heightCm = (maxY - minY) + kerfCm;
             double width = UnitConverter.fromCm(widthCm, unitSystem);
             double height = UnitConverter.fromCm(heightCm, unitSystem);
-            String materialName = "No material";
+            String materialName = "Bez materijala";
             String grain = "";
             if (shape.getMaterialId() != null) {
                 Material mat = materialDao.findById(shape.getMaterialId()).orElse(null);
                 if (mat != null) {
                     materialName = mat.getName();
-                    grain = " | grain: " + mat.getGrainDirection().name().toLowerCase();
+                    grain = " | godovi: " + grainLabel(mat.getGrainDirection());
                 }
             }
-            cutList.getItems().add(String.format("%s: %.2f x %.2f %s (qty %d)%s",
+            cutList.getItems().add(String.format("%s: %.2f x %.2f %s (kom %d)%s",
                     materialName, width, height, unitLabel, shape.getQuantity(), grain));
         }
     }
@@ -746,7 +764,7 @@ public class MainView {
         if (currentDocument == null) {
             return;
         }
-        ProjectDialog dialog = new ProjectDialog("Canvas Settings", currentDocument);
+        ProjectDialog dialog = new ProjectDialog("Postavke platna", currentDocument);
         dialog.showAndWait().ifPresent(settings -> {
             documentDao.updateSettings(currentDocument.getId(), settings.getWidthCm(), settings.getHeightCm(),
                     settings.getKerfMm(), settings.getUnitSystem());
@@ -777,5 +795,20 @@ public class MainView {
         double x = Math.min(Math.max(0, cmPoint.getX()), currentDocument.getWidthCm());
         double y = Math.min(Math.max(0, cmPoint.getY()), currentDocument.getHeightCm());
         return new Point2D(x, y);
+    }
+
+    private String materialTypeLabel(MaterialType type) {
+        return switch (type) {
+            case SHEET -> "PLOCA";
+            case LUMBER -> "GRADA";
+        };
+    }
+
+    private String grainLabel(unze.ptf.woodcraft.woodcraft.model.GrainDirection direction) {
+        return switch (direction) {
+            case NONE -> "bez";
+            case HORIZONTAL -> "vodoravno";
+            case VERTICAL -> "okomito";
+        };
     }
 }

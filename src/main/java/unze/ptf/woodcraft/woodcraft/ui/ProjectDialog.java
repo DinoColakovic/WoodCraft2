@@ -1,6 +1,7 @@
 package unze.ptf.woodcraft.woodcraft.ui;
 
 import javafx.geometry.Insets;
+import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
@@ -14,10 +15,11 @@ import unze.ptf.woodcraft.woodcraft.util.UnitConverter;
 public class ProjectDialog extends Dialog<DocumentSettings> {
     public ProjectDialog(String title, Document existing) {
         setTitle(title);
-        setHeaderText("Project settings");
+        setHeaderText("Postavke projekta");
 
-        ButtonType saveButton = new ButtonType("Save", ButtonType.OK.getButtonData());
-        getDialogPane().getButtonTypes().addAll(saveButton, ButtonType.CANCEL);
+        ButtonType saveButton = new ButtonType("Spremi", ButtonType.OK.getButtonData());
+        ButtonType cancelButton = new ButtonType("Odustani", ButtonBar.ButtonData.CANCEL_CLOSE);
+        getDialogPane().getButtonTypes().addAll(saveButton, cancelButton);
 
         GridPane grid = new GridPane();
         grid.setPadding(new Insets(10));
@@ -39,16 +41,16 @@ public class ProjectDialog extends Dialog<DocumentSettings> {
             heightField.setText(format(UnitConverter.fromCm(existing.getHeightCm(), existing.getUnitSystem())));
             kerfField.setText(format(existing.getKerfMm()));
         } else {
-            nameField.setText("New Project");
+            nameField.setText("Novi projekt");
             widthField.setText("244");
             heightField.setText("122");
         }
 
-        grid.addRow(0, new Label("Name"), nameField);
-        grid.addRow(1, new Label("Units"), unitBox);
-        grid.addRow(2, new Label("Width"), widthField);
-        grid.addRow(3, new Label("Height"), heightField);
-        grid.addRow(4, new Label("Kerf (mm)"), kerfField);
+        grid.addRow(0, new Label("Naziv"), nameField);
+        grid.addRow(1, new Label("Jedinice"), unitBox);
+        grid.addRow(2, new Label("Sirina"), widthField);
+        grid.addRow(3, new Label("Visina"), heightField);
+        grid.addRow(4, new Label("Rez (mm)"), kerfField);
 
         getDialogPane().setContent(grid);
 

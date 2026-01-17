@@ -22,7 +22,7 @@ public class ProjectListView {
     private final BorderPane root = new BorderPane();
 
     public ProjectListView(SessionManager sessionManager, DocumentDao documentDao, SceneNavigator navigator) {
-        Label title = new Label("Your Projects");
+        Label title = new Label("Vasi projekti");
         title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
         ListView<Document> list = new ListView<>();
@@ -45,7 +45,7 @@ public class ProjectListView {
         List<Document> docs = documentDao.findByUser(sessionManager.getCurrentUser().getId());
         list.getItems().setAll(docs);
 
-        Button openButton = new Button("Open");
+        Button openButton = new Button("Otvori");
         openButton.setOnAction(event -> {
             Document selected = list.getSelectionModel().getSelectedItem();
             if (selected != null) {
@@ -53,9 +53,9 @@ public class ProjectListView {
             }
         });
 
-        Button newButton = new Button("New Project");
+        Button newButton = new Button("Novi projekt");
         newButton.setOnAction(event -> {
-            ProjectDialog dialog = new ProjectDialog("New Project", null);
+            ProjectDialog dialog = new ProjectDialog("Novi projekt", null);
             dialog.showAndWait().ifPresent(settings -> {
                 int id = documentDao.createDocument(
                         sessionManager.getCurrentUser().getId(),

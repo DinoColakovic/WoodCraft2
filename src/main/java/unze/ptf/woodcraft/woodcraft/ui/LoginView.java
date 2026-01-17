@@ -19,35 +19,35 @@ public class LoginView {
         form.setAlignment(Pos.CENTER);
         form.setPadding(new Insets(20));
 
-        Label title = new Label("WoodCraft Login");
+        Label title = new Label("WoodCraft Prijava");
         title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
         TextField usernameField = new TextField();
-        usernameField.setPromptText("Username");
+        usernameField.setPromptText("Korisnicko ime");
 
         PasswordField passwordField = new PasswordField();
-        passwordField.setPromptText("Password");
+        passwordField.setPromptText("Lozinka");
 
         Label message = new Label();
         message.setStyle("-fx-text-fill: #b00020;");
 
-        Button loginButton = new Button("Login");
+        Button loginButton = new Button("Prijava");
         loginButton.setDefaultButton(true);
         loginButton.setOnAction(event -> {
             String username = usernameField.getText().trim();
             String password = passwordField.getText();
             if (username.isEmpty() || password.isEmpty()) {
-                message.setText("Enter username and password.");
+                message.setText("Unesite korisnicko ime i lozinku.");
                 return;
             }
             if (authService.login(username, password).isPresent()) {
                 navigator.showProjects();
             } else {
-                message.setText("Invalid credentials.");
+                message.setText("Neispravni podaci.");
             }
         });
 
-        Button signupLink = new Button("Create account");
+        Button signupLink = new Button("Izradi racun");
         signupLink.setOnAction(event -> navigator.showSignup());
 
         form.getChildren().addAll(title, usernameField, passwordField, loginButton, message, signupLink);

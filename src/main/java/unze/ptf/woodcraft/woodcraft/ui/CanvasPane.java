@@ -33,11 +33,13 @@ public class CanvasPane extends Pane {
     }
 
     private static final double NODE_RADIUS = 4.5;
+    private static final double HANDLE_RADIUS = 4;
 
     private final Group contentLayer = new Group();
     private final Group boardLayer = new Group();
     private final Group shapeLayer = new Group();
     private final Group edgeLayer = new Group();
+    private final Group handleLayer = new Group();
     private final Group guideLayer = new Group();
     private final Group nodeLayer = new Group();
     private final Rectangle selectionRect = new Rectangle();
@@ -47,13 +49,14 @@ public class CanvasPane extends Pane {
 
     private final Map<Integer, Circle> nodeViews = new HashMap<>();
     private final Map<Integer, Polygon> shapeViews = new HashMap<>();
-    private final Map<Integer, Line> edgeViews = new HashMap<>();
+    private final Map<Integer, CubicCurveView> edgeViews = new HashMap<>();
 
     private final List<NodePoint> nodes = new ArrayList<>();
     private final List<Edge> edges = new ArrayList<>();
     private final List<Guide> guides = new ArrayList<>();
     private final List<ShapePolygon> shapes = new ArrayList<>();
     private final Map<Integer, Color> materialColors = new HashMap<>();
+    private final Map<Integer, EdgeControls> edgeControls = new HashMap<>();
 
     private Consumer<Point2D> onCanvasClicked;
     private IntConsumer onNodeClicked;
@@ -67,6 +70,8 @@ public class CanvasPane extends Pane {
     private Integer selectedNodeId;
     private Integer selectedShapeId;
     private Integer movingNodeId;
+    private Integer activeHandleEdgeId;
+    private boolean activeHandleStart;
     private double canvasWidthCm = 244;
     private double canvasHeightCm = 122;
     private double panX;
@@ -92,7 +97,7 @@ public class CanvasPane extends Pane {
         boardRect.setStroke(Color.web("#c9c2b5"));
         boardRect.setStrokeWidth(1);
         boardLayer.getChildren().add(boardRect);
-        contentLayer.getChildren().addAll(boardLayer, shapeLayer, edgeLayer, nodeLayer);
+        contentLayer.getChildren().addAll(boardLayer, shapeLayer, edgeLayer, nodeLayer, handleLayer);
         contentLayer.setClip(clipRect);
         getChildren().addAll(contentLayer, guideLayer, selectionRect);
         widthProperty().addListener((obs, oldVal, newVal) -> redraw());
@@ -259,6 +264,7 @@ public class CanvasPane extends Pane {
         if (mode != Mode.DELETE_NODE && mode != Mode.DELETE_GUIDE) {
             selectionRect.setVisible(false);
         }
+        refreshHandleLayer();
     }
 
     public void setScale(double scale) {
@@ -310,6 +316,7 @@ public class CanvasPane extends Pane {
         edgeLayer.getChildren().clear();
         guideLayer.getChildren().clear();
         nodeLayer.getChildren().clear();
+        handleLayer.getChildren().clear();
         nodeViews.clear();
         shapeViews.clear();
         edgeViews.clear();
@@ -346,6 +353,9 @@ public class CanvasPane extends Pane {
         });
         circle.setOnMousePressed(event -> {
             if (mode == Mode.MOVE_NODE) {
+                if (onNodeClicked != null) {
+                    onNodeClicked.accept(node.getId());
+                }
                 movingNodeId = node.getId();
                 event.consume();
             }
@@ -356,7 +366,7 @@ public class CanvasPane extends Pane {
             }
             Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
             Point2D cmPoint = toCm(local.getX(), local.getY());
-            updateNodePosition(node.getId(), cmPoint);
+            updateNodePosition(node.getId(), cmPoint, event.isShiftDown());
             event.consume();
         });
         circle.setOnMouseReleased(event -> {
@@ -365,7 +375,7 @@ public class CanvasPane extends Pane {
             }
             Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
             Point2D cmPoint = toCm(local.getX(), local.getY());
-            updateNodePosition(node.getId(), cmPoint);
+            updateNodePosition(node.getId(), cmPoint, event.isShiftDown());
             if (onNodeMoveFinished != null) {
                 onNodeMoveFinished.accept(node.getId(), cmPoint);
             }
@@ -382,12 +392,24 @@ public class CanvasPane extends Pane {
         if (start == null || end == null) {
             return;
         }
-        Line line = new Line(start.getXCm() * scale, start.getYCm() * scale, end.getXCm() * scale, end.getYCm() * scale);
-        line.setStroke(Color.DARKSLATEGRAY);
-        line.setStrokeWidth(2);
-        line.setStrokeLineCap(StrokeLineCap.ROUND);
-        edgeLayer.getChildren().add(line);
-        edgeViews.put(edge.getId(), line);
+        Point2D controlStart = getControlPoint(edge.getId(), true, start, end);
+        Point2D controlEnd = getControlPoint(edge.getId(), false, start, end);
+        javafx.scene.shape.CubicCurve curve = new javafx.scene.shape.CubicCurve(
+                start.getXCm() * scale,
+                start.getYCm() * scale,
+                controlStart.getX() * scale,
+                controlStart.getY() * scale,
+                controlEnd.getX() * scale,
+                controlEnd.getY() * scale,
+                end.getXCm() * scale,
+                end.getYCm() * scale
+        );
+        curve.setFill(Color.TRANSPARENT);
+        curve.setStroke(Color.DARKSLATEGRAY);
+        curve.setStrokeWidth(2);
+        curve.setStrokeLineCap(StrokeLineCap.ROUND);
+        edgeLayer.getChildren().add(curve);
+        edgeViews.put(edge.getId(), new CubicCurveView(curve));
     }
 
     private void drawGuide(Guide guide) {
@@ -464,15 +486,22 @@ public class CanvasPane extends Pane {
         return resolved;
     }
 
-    private void updateNodePosition(int nodeId, Point2D cmPoint) {
+    private void updateNodePosition(int nodeId, Point2D cmPoint, boolean resetHandles) {
         double xCm = Math.max(0, cmPoint.getX());
         double yCm = Math.max(0, cmPoint.getY());
+        Point2D previous = null;
         for (int i = 0; i < nodes.size(); i++) {
             NodePoint node = nodes.get(i);
             if (node.getId() == nodeId) {
+                previous = new Point2D(node.getXCm(), node.getYCm());
                 nodes.set(i, new NodePoint(nodeId, node.getDocumentId(), xCm, yCm));
                 break;
             }
+        }
+        if (previous != null && !resetHandles) {
+            updateControlsForNode(nodeId, previous, new Point2D(xCm, yCm));
+        } else if (resetHandles) {
+            resetControlsForNode(nodeId);
         }
         Circle circle = nodeViews.get(nodeId);
         if (circle != null) {
@@ -481,6 +510,7 @@ public class CanvasPane extends Pane {
         }
         updateConnectedEdges(nodeId);
         updateShapePolygons();
+        refreshHandleLayer();
     }
 
     private void updateConnectedEdges(int nodeId) {
@@ -488,8 +518,8 @@ public class CanvasPane extends Pane {
             if (edge.getStartNodeId() != nodeId && edge.getEndNodeId() != nodeId) {
                 continue;
             }
-            Line line = edgeViews.get(edge.getId());
-            if (line == null) {
+            CubicCurveView view = edgeViews.get(edge.getId());
+            if (view == null) {
                 continue;
             }
             NodePoint start = findNode(edge.getStartNodeId());
@@ -497,10 +527,16 @@ public class CanvasPane extends Pane {
             if (start == null || end == null) {
                 continue;
             }
-            line.setStartX(start.getXCm() * scale);
-            line.setStartY(start.getYCm() * scale);
-            line.setEndX(end.getXCm() * scale);
-            line.setEndY(end.getYCm() * scale);
+            Point2D controlStart = getControlPoint(edge.getId(), true, start, end);
+            Point2D controlEnd = getControlPoint(edge.getId(), false, start, end);
+            view.curve.setStartX(start.getXCm() * scale);
+            view.curve.setStartY(start.getYCm() * scale);
+            view.curve.setControlX1(controlStart.getX() * scale);
+            view.curve.setControlY1(controlStart.getY() * scale);
+            view.curve.setControlX2(controlEnd.getX() * scale);
+            view.curve.setControlY2(controlEnd.getY() * scale);
+            view.curve.setEndX(end.getXCm() * scale);
+            view.curve.setEndY(end.getYCm() * scale);
         }
     }
 
@@ -592,6 +628,7 @@ public class CanvasPane extends Pane {
                 polygon.setStrokeWidth(1);
             }
         }
+        refreshHandleLayer();
     }
 
     private NodePoint findNode(int nodeId) {
@@ -603,11 +640,166 @@ public class CanvasPane extends Pane {
         return null;
     }
 
+    private void refreshHandleLayer() {
+        handleLayer.getChildren().clear();
+        if (mode != Mode.MOVE_NODE || selectedNodeId == null) {
+            return;
+        }
+        NodePoint node = findNode(selectedNodeId);
+        if (node == null) {
+            return;
+        }
+        for (Edge edge : edges) {
+            boolean isStart = edge.getStartNodeId() == selectedNodeId;
+            boolean isEnd = edge.getEndNodeId() == selectedNodeId;
+            if (!isStart && !isEnd) {
+                continue;
+            }
+            NodePoint start = findNode(edge.getStartNodeId());
+            NodePoint end = findNode(edge.getEndNodeId());
+            if (start == null || end == null) {
+                continue;
+            }
+            Point2D controlPoint = getControlPoint(edge.getId(), isStart, start, end);
+            Line handleLine = new Line(
+                    node.getXCm() * scale,
+                    node.getYCm() * scale,
+                    controlPoint.getX() * scale,
+                    controlPoint.getY() * scale
+            );
+            handleLine.setStroke(Color.rgb(120, 120, 160, 0.7));
+            handleLine.getStrokeDashArray().setAll(4.0, 4.0);
+            Circle handle = new Circle(
+                    controlPoint.getX() * scale,
+                    controlPoint.getY() * scale,
+                    HANDLE_RADIUS,
+                    Color.WHITESMOKE
+            );
+            handle.setStroke(Color.DARKSLATEBLUE);
+            handle.setStrokeWidth(1.2);
+            handle.setOnMousePressed(event -> {
+                if (mode == Mode.MOVE_NODE) {
+                    activeHandleEdgeId = edge.getId();
+                    activeHandleStart = isStart;
+                    event.consume();
+                }
+            });
+            handle.setOnMouseDragged(event -> {
+                if (mode != Mode.MOVE_NODE || activeHandleEdgeId == null || activeHandleEdgeId != edge.getId()) {
+                    return;
+                }
+                Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
+                Point2D cm = clampToCanvas(toCm(local.getX(), local.getY()));
+                setControlPoint(edge.getId(), isStart, cm, start, end);
+                handleLine.setEndX(cm.getX() * scale);
+                handleLine.setEndY(cm.getY() * scale);
+                handle.setCenterX(cm.getX() * scale);
+                handle.setCenterY(cm.getY() * scale);
+                updateConnectedEdges(edge.getStartNodeId());
+                updateConnectedEdges(edge.getEndNodeId());
+                event.consume();
+            });
+            handle.setOnMouseReleased(event -> {
+                if (activeHandleEdgeId != null && activeHandleEdgeId == edge.getId()) {
+                    activeHandleEdgeId = null;
+                    event.consume();
+                }
+            });
+            handleLayer.getChildren().addAll(handleLine, handle);
+        }
+    }
+
+    private Point2D getControlPoint(int edgeId, boolean startSide, NodePoint start, NodePoint end) {
+        EdgeControls controls = edgeControls.get(edgeId);
+        if (controls == null) {
+            EdgeControls defaults = buildDefaultControls(start, end);
+            edgeControls.put(edgeId, defaults);
+            return startSide ? defaults.start() : defaults.end();
+        }
+        Point2D point = startSide ? controls.start() : controls.end();
+        if (point == null) {
+            EdgeControls defaults = buildDefaultControls(start, end);
+            edgeControls.put(edgeId, defaults);
+            return startSide ? defaults.start() : defaults.end();
+        }
+        return point;
+    }
+
+    private void setControlPoint(int edgeId, boolean startSide, Point2D cmPoint, NodePoint start, NodePoint end) {
+        EdgeControls controls = edgeControls.get(edgeId);
+        if (controls == null) {
+            controls = buildDefaultControls(start, end);
+        }
+        EdgeControls updated = startSide
+                ? new EdgeControls(cmPoint, controls.end())
+                : new EdgeControls(controls.start(), cmPoint);
+        edgeControls.put(edgeId, updated);
+    }
+
+    private EdgeControls buildDefaultControls(NodePoint start, NodePoint end) {
+        Point2D startPoint = new Point2D(start.getXCm(), start.getYCm());
+        Point2D endPoint = new Point2D(end.getXCm(), end.getYCm());
+        Point2D delta = endPoint.subtract(startPoint);
+        Point2D controlStart = startPoint.add(delta.multiply(0.33));
+        Point2D controlEnd = startPoint.add(delta.multiply(0.66));
+        return new EdgeControls(controlStart, controlEnd);
+    }
+
+    private void updateControlsForNode(int nodeId, Point2D previous, Point2D current) {
+        Point2D delta = current.subtract(previous);
+        for (Edge edge : edges) {
+            EdgeControls controls = edgeControls.get(edge.getId());
+            if (controls == null) {
+                continue;
+            }
+            boolean updated = false;
+            Point2D start = controls.start();
+            Point2D end = controls.end();
+            if (edge.getStartNodeId() == nodeId && start != null) {
+                start = start.add(delta);
+                updated = true;
+            }
+            if (edge.getEndNodeId() == nodeId && end != null) {
+                end = end.add(delta);
+                updated = true;
+            }
+            if (updated) {
+                edgeControls.put(edge.getId(), new EdgeControls(start, end));
+            }
+        }
+    }
+
+    private void resetControlsForNode(int nodeId) {
+        for (Edge edge : edges) {
+            if (edge.getStartNodeId() != nodeId && edge.getEndNodeId() != nodeId) {
+                continue;
+            }
+            NodePoint start = findNode(edge.getStartNodeId());
+            NodePoint end = findNode(edge.getEndNodeId());
+            if (start == null || end == null) {
+                continue;
+            }
+            edgeControls.put(edge.getId(), buildDefaultControls(start, end));
+        }
+    }
+
     private Point2D toCm(double xPx, double yPx) {
         return new Point2D((xPx - panX) / scale, (yPx - panY) / scale);
     }
 
     public Point2D toCanvasCm(Point2D localPoint) {
         return toCm(localPoint.getX(), localPoint.getY());
+    }
+
+    private Point2D clampToCanvas(Point2D cmPoint) {
+        double x = Math.min(Math.max(0, cmPoint.getX()), canvasWidthCm);
+        double y = Math.min(Math.max(0, cmPoint.getY()), canvasHeightCm);
+        return new Point2D(x, y);
+    }
+
+    private record EdgeControls(Point2D start, Point2D end) {
+    }
+
+    private record CubicCurveView(javafx.scene.shape.CubicCurve curve) {
     }
 }

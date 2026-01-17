@@ -67,19 +67,19 @@ public class EstimationService {
                 int sheets = (int) Math.ceil(adjustedAreaM2 / sheetAreaM2);
                 double cost = sheets * material.getSheetPrice();
                 double edgeBandingCost = computeEdgeBandingCost(material, totalPerimeterCm);
-                String details = String.format("Sheets: %d (%.2f m2 + %.1f%% waste)", sheets, areaM2, wastePercent);
+                String details = String.format("Ploce: %d (%.2f m2 + %.1f%% otpada)", sheets, areaM2, wastePercent);
                 return new EstimationSummary(material.getName(), appendEdgeBanding(details, edgeBandingCost), cost + edgeBandingCost);
             }
             double cost = adjustedAreaM2 * material.getPricePerSquareMeter();
             double edgeBandingCost = computeEdgeBandingCost(material, totalPerimeterCm);
-            String details = String.format("Area: %.2f m2 (%.1f%% waste)", adjustedAreaM2, wastePercent);
+            String details = String.format("Povrsina: %.2f m2 (%.1f%% otpada)", adjustedAreaM2, wastePercent);
             return new EstimationSummary(material.getName(), appendEdgeBanding(details, edgeBandingCost), cost + edgeBandingCost);
         }
 
         double totalMeters = totalPerimeterCm / 100.0;
         double cost = totalMeters * material.getPricePerLinearMeter();
         double edgeBandingCost = computeEdgeBandingCost(material, totalPerimeterCm);
-        String details = String.format("Linear: %.2f m", totalMeters);
+        String details = String.format("Duzina: %.2f m", totalMeters);
         return new EstimationSummary(material.getName(), appendEdgeBanding(details, edgeBandingCost), cost + edgeBandingCost);
     }
 
@@ -95,6 +95,6 @@ public class EstimationService {
         if (edgeBandingCost <= 0) {
             return details;
         }
-        return details + String.format(" + edge banding $%.2f", edgeBandingCost);
+        return details + String.format(" + kant traka $%.2f", edgeBandingCost);
     }
 }

@@ -21,42 +21,42 @@ public class SignupView {
         form.setAlignment(Pos.CENTER);
         form.setPadding(new Insets(20));
 
-        Label title = new Label("Create Account");
+        Label title = new Label("Izradi racun");
         title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
         TextField usernameField = new TextField();
-        usernameField.setPromptText("Username");
+        usernameField.setPromptText("Korisnicko ime");
 
         PasswordField passwordField = new PasswordField();
-        passwordField.setPromptText("Password");
+        passwordField.setPromptText("Lozinka");
 
         PasswordField confirmField = new PasswordField();
-        confirmField.setPromptText("Confirm password");
+        confirmField.setPromptText("Potvrdi lozinku");
 
         Label message = new Label();
         message.setStyle("-fx-text-fill: #b00020;");
 
         Label note = new Label();
         if (userDao.countUsers() == 0) {
-            note.setText("First account will be created as ADMIN.");
+            note.setText("Prvi racun ce biti ADMIN.");
         }
 
-        Button createButton = new Button("Create account");
+        Button createButton = new Button("Izradi racun");
         createButton.setDefaultButton(true);
         createButton.setOnAction(event -> {
             String username = usernameField.getText().trim();
             String password = passwordField.getText();
             String confirm = confirmField.getText();
             if (username.isEmpty() || password.isEmpty()) {
-                message.setText("Enter username and password.");
+                message.setText("Unesite korisnicko ime i lozinku.");
                 return;
             }
             if (!password.equals(confirm)) {
-                message.setText("Passwords do not match.");
+                message.setText("Lozinke se ne podudaraju.");
                 return;
             }
             if (userDao.findByUsername(username).isPresent()) {
-                message.setText("Username already exists.");
+                message.setText("Korisnicko ime vec postoji.");
                 return;
             }
             Role role = userDao.countUsers() == 0 ? Role.ADMIN : Role.USER;
@@ -64,7 +64,7 @@ public class SignupView {
             navigator.showProjects();
         });
 
-        Button loginLink = new Button("Back to login");
+        Button loginLink = new Button("Natrag na prijavu");
         loginLink.setOnAction(event -> navigator.showLogin());
 
         form.getChildren().addAll(title, usernameField, passwordField, confirmField, note, createButton, message, loginLink);

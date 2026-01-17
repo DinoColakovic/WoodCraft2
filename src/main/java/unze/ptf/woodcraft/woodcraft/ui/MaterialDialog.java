@@ -2,6 +2,7 @@ package unze.ptf.woodcraft.woodcraft.ui;
 
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
@@ -20,11 +21,12 @@ public class MaterialDialog extends Dialog<Material> {
     }
 
     public MaterialDialog(int userId, Material existing) {
-        setTitle(existing == null ? "Add Material" : "Edit Material");
-        setHeaderText("Define a material for estimation.");
+        setTitle(existing == null ? "Dodaj materijal" : "Uredi materijal");
+        setHeaderText("Definirajte materijal za procjenu.");
 
-        ButtonType saveButton = new ButtonType("Save", ButtonType.OK.getButtonData());
-        getDialogPane().getButtonTypes().addAll(saveButton, ButtonType.CANCEL);
+        ButtonType saveButton = new ButtonType("Spremi", ButtonType.OK.getButtonData());
+        ButtonType cancelButton = new ButtonType("Odustani", ButtonBar.ButtonData.CANCEL_CLOSE);
+        getDialogPane().getButtonTypes().addAll(saveButton, cancelButton);
 
         GridPane grid = new GridPane();
         grid.setPadding(new Insets(10));
@@ -35,6 +37,20 @@ public class MaterialDialog extends Dialog<Material> {
         ComboBox<MaterialType> typeBox = new ComboBox<>();
         typeBox.getItems().addAll(MaterialType.SHEET, MaterialType.LUMBER);
         typeBox.getSelectionModel().select(MaterialType.SHEET);
+        typeBox.setCellFactory(listView -> new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(MaterialType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : materialTypeLabel(item));
+            }
+        });
+        typeBox.setButtonCell(new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(MaterialType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : materialTypeLabel(item));
+            }
+        });
 
         TextField sheetWidthField = new TextField("244");
         TextField sheetHeightField = new TextField("122");
@@ -45,15 +61,29 @@ public class MaterialDialog extends Dialog<Material> {
         ComboBox<GrainDirection> grainBox = new ComboBox<>();
         grainBox.getItems().addAll(GrainDirection.NONE, GrainDirection.HORIZONTAL, GrainDirection.VERTICAL);
         grainBox.getSelectionModel().select(GrainDirection.NONE);
+        grainBox.setCellFactory(listView -> new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(GrainDirection item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : grainLabel(item));
+            }
+        });
+        grainBox.setButtonCell(new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(GrainDirection item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : grainLabel(item));
+            }
+        });
         TextField imagePathField = new TextField();
-        imagePathField.setPromptText("Optional image file path");
+        imagePathField.setPromptText("Opcionalna putanja do slike");
 
-        Button browseButton = new Button("Browse");
+        Button browseButton = new Button("Odaberi");
         browseButton.setOnAction(event -> {
             FileChooser chooser = new FileChooser();
-            chooser.setTitle("Select Material Image");
+            chooser.setTitle("Odaberi sliku materijala");
             chooser.getExtensionFilters().addAll(
-                    new FileChooser.ExtensionFilter("Images", "*.png", "*.jpg", "*.jpeg", "*.gif")
+                    new FileChooser.ExtensionFilter("Slike", "*.png", "*.jpg", "*.jpeg", "*.gif")
             );
             var window = getDialogPane().getScene() == null ? null : getDialogPane().getScene().getWindow();
             var selected = chooser.showOpenDialog(window);
@@ -79,16 +109,16 @@ public class MaterialDialog extends Dialog<Material> {
             }
         }
 
-        grid.addRow(0, new Label("Name"), nameField);
-        grid.addRow(1, new Label("Type"), typeBox);
-        grid.addRow(2, new Label("Sheet width (cm)"), sheetWidthField);
-        grid.addRow(3, new Label("Sheet height (cm)"), sheetHeightField);
-        grid.addRow(4, new Label("Sheet price"), sheetPriceField);
-        grid.addRow(5, new Label("Price per m2"), pricePerSquareField);
-        grid.addRow(6, new Label("Price per linear m"), pricePerLinearField);
-        grid.addRow(7, new Label("Edge banding $/m"), edgeBandingField);
-        grid.addRow(8, new Label("Grain"), grainBox);
-        grid.addRow(9, new Label("Image"), imageRow);
+        grid.addRow(0, new Label("Naziv"), nameField);
+        grid.addRow(1, new Label("Tip"), typeBox);
+        grid.addRow(2, new Label("Sirina ploce (cm)"), sheetWidthField);
+        grid.addRow(3, new Label("Visina ploce (cm)"), sheetHeightField);
+        grid.addRow(4, new Label("Cijena ploce"), sheetPriceField);
+        grid.addRow(5, new Label("Cijena po m2"), pricePerSquareField);
+        grid.addRow(6, new Label("Cijena po duznom m"), pricePerLinearField);
+        grid.addRow(7, new Label("Kant traka $/m"), edgeBandingField);
+        grid.addRow(8, new Label("Smjer godova"), grainBox);
+        grid.addRow(9, new Label("Slika"), imageRow);
 
         getDialogPane().setContent(grid);
 
@@ -124,5 +154,20 @@ public class MaterialDialog extends Dialog<Material> {
 
     private String format(double value) {
         return String.format("%.2f", value).replaceAll("\\.00$", "");
+    }
+
+    private static String materialTypeLabel(MaterialType type) {
+        return switch (type) {
+            case SHEET -> "PLOCA";
+            case LUMBER -> "GRADA";
+        };
+    }
+
+    private static String grainLabel(GrainDirection direction) {
+        return switch (direction) {
+            case NONE -> "Bez";
+            case HORIZONTAL -> "Vodoravno";
+            case VERTICAL -> "Okomito";
+        };
     }
 }

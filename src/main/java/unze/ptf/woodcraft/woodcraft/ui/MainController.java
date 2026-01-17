@@ -151,7 +151,7 @@ public class MainController {
             @Override
             protected void updateItem(Material item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.getName() + " (" + item.getType() + ")");
+                setText(empty || item == null ? null : item.getName() + " (" + materialTypeLabel(item.getType()) + ")");
             }
         });
         addMaterialButton.setOnAction(event -> {
@@ -180,7 +180,7 @@ public class MainController {
         int userId = sessionManager.getCurrentUser().getId();
         currentDocument = documentDao.findFirstByUser(userId)
                 .orElseGet(() -> {
-                    int id = documentDao.createDocument(userId, "Default Project");
+                    int id = documentDao.createDocument(userId, "Zadani projekt");
                     return documentDao.findById(id, userId).orElse(null);
                 });
         if (currentDocument == null) {
@@ -262,7 +262,7 @@ public class MainController {
             }
         }
         updateSummary();
-        System.out.println("edge " + startNodeId + "-" + endNodeId + " added, cycleDetected="
+        System.out.println("rub " + startNodeId + "-" + endNodeId + " dodan, cycleDetected="
                 + cycleResult.cycleDetected() + ", shapeCount=" + shapes.size());
     }
 
@@ -482,7 +482,7 @@ public class MainController {
         summaryList.getItems().clear();
         int index = 1;
         for (ShapePolygon shape : shapes) {
-            summaryList.getItems().add(String.format("Shape %d area: %.2f cm2", index++, shape.getAreaCm2()));
+            summaryList.getItems().add(String.format("Oblik %d povrsina: %.2f cm2", index++, shape.getAreaCm2()));
         }
         double total = 0;
         List<EstimationSummary> summaries = estimationService.estimate(currentDocument.getId(), 10.0);
@@ -491,6 +491,13 @@ public class MainController {
                     + String.format(" ($%.2f)", summary.getCost()));
             total += summary.getCost();
         }
-        totalCostLabel.setText(String.format("Total: $%.2f", total));
+        totalCostLabel.setText(String.format("Ukupno: $%.2f", total));
+    }
+
+    private String materialTypeLabel(unze.ptf.woodcraft.woodcraft.model.MaterialType type) {
+        return switch (type) {
+            case SHEET -> "PLOCA";
+            case LUMBER -> "GRADA";
+        };
     }
 }

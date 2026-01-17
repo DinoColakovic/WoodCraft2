@@ -52,7 +52,7 @@ public class SceneNavigator {
         } else {
             showLogin();
         }
-        stage.setTitle("WoodCraft Planner");
+        stage.setTitle("WoodCraft Planer");
         stage.show();
     }
 
