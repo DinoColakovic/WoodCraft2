@@ -5,12 +5,15 @@ import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import unze.ptf.woodcraft.woodcraft.dao.DocumentDao;
+import javafx.stage.FileChooser;
+import unze.ptf.woodcraft.woodcraft.dao.*;
+import unze.ptf.woodcraft.woodcraft.io.ProjectPackageService;
 import unze.ptf.woodcraft.woodcraft.model.Document;
 import unze.ptf.woodcraft.woodcraft.model.UnitSystem;
 import unze.ptf.woodcraft.woodcraft.session.SessionManager;
 import unze.ptf.woodcraft.woodcraft.util.UnitConverter;
 
+import java.io.File;
 import java.util.List;
 
 public class ProjectListView {
@@ -18,36 +21,22 @@ public class ProjectListView {
 
     public ProjectListView(SessionManager sessionManager, DocumentDao documentDao, SceneNavigator navigator) {
 
-        // 🌿 Pozadina (isti fazon kao Signup)
         root.setStyle("-fx-background-color: linear-gradient(to bottom right, #F3F0E8, #FFFFFF);");
 
-        // ===========================
-        // 🧱 Card (veći + luksuzniji)
-        // ===========================
         VBox card = new VBox(16);
         card.setAlignment(Pos.TOP_CENTER);
-
-        // ✅ veći padding za desktop “prostor”
         card.setPadding(new Insets(40, 42, 36, 42));
-
-        // ✅ veći card (više bijelog)
         card.setMaxWidth(900);
-
-        // ✅ ne raste u visinu (sprječava “bijelo do dna” bug)
         card.setMaxHeight(Region.USE_PREF_SIZE);
 
-        // ✅ luksuzniji shadow
         card.setStyle(
                 "-fx-background-color: rgba(255,255,255,0.94);" +
-                "-fx-background-radius: 24;" +
-                "-fx-border-radius: 24;" +
-                "-fx-border-color: rgba(60,60,60,0.10);" +
-                "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.22), 35, 0.35, 0, 14);"
+                        "-fx-background-radius: 24;" +
+                        "-fx-border-radius: 24;" +
+                        "-fx-border-color: rgba(60,60,60,0.10);" +
+                        "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.22), 35, 0.35, 0, 14);"
         );
 
-        // ===========================
-        // 📝 Naslov
-        // ===========================
         Label title = new Label("Vaši projekti");
         title.setStyle("-fx-font-size: 22px; -fx-font-weight: 800; -fx-text-fill: #2C2C2C;");
 
@@ -55,21 +44,17 @@ public class ProjectListView {
         subtitle.setWrapText(true);
         subtitle.setStyle("-fx-font-size: 14px; -fx-text-fill: #6B6B6B;");
 
-        // ===========================
-        // 📃 Lista projekata
-        // ===========================
         ListView<Document> list = new ListView<>();
-        list.setPrefHeight(460); // ✅ viša lista (desktop)
+        list.setPrefHeight(460);
         list.setMaxWidth(Double.MAX_VALUE);
 
-        // panel izgled + malo “premium” border
         list.setStyle(
                 "-fx-background-color: #FBFAF6;" +
-                "-fx-background-radius: 16;" +
-                "-fx-border-radius: 16;" +
-                "-fx-border-color: rgba(0,0,0,0.12);" +
-                "-fx-border-width: 1;" +
-                "-fx-padding: 2;"
+                        "-fx-background-radius: 16;" +
+                        "-fx-border-radius: 16;" +
+                        "-fx-border-color: rgba(0,0,0,0.12);" +
+                        "-fx-border-width: 1;" +
+                        "-fx-padding: 2;"
         );
 
         list.setCellFactory(view -> new ListCell<>() {
@@ -88,18 +73,25 @@ public class ProjectListView {
                 String unitLabel = unit == UnitSystem.IN ? "in" : "cm";
 
                 setText(item.getName() + " (" + format(width) + " x " + format(height) + " " + unitLabel + ")");
-
-                // malo više “desktop list” feel
                 setStyle("-fx-font-size: 14px; -fx-padding: 12 14;");
             }
         });
 
-        List<Document> docs = documentDao.findByUser(sessionManager.getCurrentUser().getId());
+        final int userId = sessionManager.getCurrentUser().getId();
+        List<Document> docs = documentDao.findByUser(userId);
         list.getItems().setAll(docs);
 
-        // ===========================
-        // 🌿 Dugmad (hover svuda)
-        // ===========================
+        final ProjectPackageService packageService = new ProjectPackageService(
+                documentDao,
+                new NodeDao(),
+                new EdgeDao(),
+                new GuideDao(),
+                new ShapeDao(),
+                new ManualShapeDao(),
+                new DimensionDao(),
+                new MaterialDao()
+        );
+
         Button newButton = new Button("Novi projekt");
         setupPrimaryButton(newButton);
 
@@ -107,7 +99,7 @@ public class ProjectListView {
             ProjectDialog dialog = new ProjectDialog("Novi projekat", null);
             dialog.showAndWait().ifPresent(settings -> {
                 int id = documentDao.createDocument(
-                        sessionManager.getCurrentUser().getId(),
+                        userId,
                         settings.getName(),
                         settings.getWidthCm(),
                         settings.getHeightCm(),
@@ -128,35 +120,91 @@ public class ProjectListView {
             }
         });
 
+        Button exportButton = new Button("Izvezi");
+        setupPrimaryButton(exportButton);
+
+        exportButton.setOnAction(event -> {
+            Document selected = list.getSelectionModel().getSelectedItem();
+            if (selected == null) return;
+
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Spremi projekat kao paket");
+            chooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("WoodCraft paket (*.wcp.zip)", "*.wcp.zip")
+            );
+            chooser.setInitialFileName(selected.getName().replaceAll("\\s+", "_") + ".wcp.zip");
+
+            File out = chooser.showSaveDialog(root.getScene().getWindow());
+            if (out == null) return;
+
+            try {
+                packageService.exportDocument(selected.getId(), userId, out.toPath());
+                new Alert(Alert.AlertType.INFORMATION, "Izvoz uspješan!").showAndWait();
+            } catch (Exception ex) {
+                new Alert(Alert.AlertType.ERROR, "Greška pri izvozu:\n" + ex.getMessage()).showAndWait();
+            }
+        });
+
+        Button importButton = new Button("Uvezi");
+        setupPrimaryButton(importButton);
+
+        importButton.setOnAction(event -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Odaberi paket za uvoz");
+            chooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("WoodCraft paket (*.wcp.zip)", "*.wcp.zip")
+            );
+
+            File in = chooser.showOpenDialog(root.getScene().getWindow());
+            if (in == null) return;
+
+            try {
+                String suggestedName = packageService.readSuggestedName(in.toPath());
+                String finalName = resolveNameCollision(documentDao, userId, suggestedName);
+
+                packageService.importPackage(in.toPath(), userId, finalName);
+
+                list.getItems().setAll(documentDao.findByUser(userId));
+
+                new Alert(
+            Alert.AlertType.INFORMATION,
+                 "Uvoz uspješan! Projekat je dodan na listu.\n\n" +
+                 "Odaberite projekat i kliknite 'Otvori'."
+                ).showAndWait();
+
+
+            } catch (Exception ex) {
+                new Alert(Alert.AlertType.ERROR, "Greška pri uvozu:\n" + ex.getMessage()).showAndWait();
+            }
+        });
+
         Button deleteButton = new Button("Obriši");
         setupDangerButton(deleteButton);
 
         deleteButton.setOnAction(event -> {
             Document selected = list.getSelectionModel().getSelectedItem();
-            if (selected == null) {
-                return;
-            }
+            if (selected == null) return;
+
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                     "Obrisati projekt \"" + selected.getName() + "\"?", ButtonType.OK, ButtonType.CANCEL);
             confirm.setHeaderText("Potvrda brisanja");
             confirm.showAndWait().ifPresent(result -> {
                 if (result == ButtonType.OK) {
                     documentDao.deleteByIdCascade(selected.getId());
-                    list.getItems().setAll(documentDao.findByUser(sessionManager.getCurrentUser().getId()));
+                    list.getItems().setAll(documentDao.findByUser(userId));
                 }
             });
         });
 
-        HBox actions = new HBox(12, newButton, openButton, deleteButton);
+        HBox actions = new HBox(12, newButton, openButton, exportButton, importButton, deleteButton);
         actions.setAlignment(Pos.CENTER);
 
         HBox.setHgrow(newButton, Priority.ALWAYS);
         HBox.setHgrow(openButton, Priority.ALWAYS);
+        HBox.setHgrow(exportButton, Priority.ALWAYS);
+        HBox.setHgrow(importButton, Priority.ALWAYS);
         HBox.setHgrow(deleteButton, Priority.ALWAYS);
 
-        // ===========================
-        // Složeno u card
-        // ===========================
         card.getChildren().addAll(
                 title,
                 subtitle,
@@ -168,8 +216,6 @@ public class ProjectListView {
 
         root.setCenter(card);
         BorderPane.setAlignment(card, Pos.CENTER);
-
-        // ✅ centrirano + lijep razmak od ivica
         BorderPane.setMargin(card, new Insets(32, 28, 70, 28));
     }
 
@@ -180,8 +226,6 @@ public class ProjectListView {
     private String format(double value) {
         return String.format("%.2f", value).replaceAll("\\.00$", "");
     }
-
-    // ================= HELPERS =================
 
     private static Region spacer(double h) {
         Region r = new Region();
@@ -211,11 +255,11 @@ public class ProjectListView {
         String base = hover ? "#547357" : "#6E8F6A";
         b.setStyle(
                 "-fx-background-color: " + base + ";" +
-                "-fx-text-fill: white;" +
-                "-fx-font-size: 14px;" +
-                "-fx-font-weight: 800;" +
-                "-fx-background-radius: 16;" +
-                "-fx-cursor: hand;"
+                        "-fx-text-fill: white;" +
+                        "-fx-font-size: 14px;" +
+                        "-fx-font-weight: 800;" +
+                        "-fx-background-radius: 16;" +
+                        "-fx-cursor: hand;"
         );
     }
 
@@ -223,11 +267,35 @@ public class ProjectListView {
         String base = hover ? "#B54949" : "#C85C5C";
         b.setStyle(
                 "-fx-background-color: " + base + ";" +
-                "-fx-text-fill: white;" +
-                "-fx-font-size: 14px;" +
-                "-fx-font-weight: 800;" +
-                "-fx-background-radius: 16;" +
-                "-fx-cursor: hand;"
+                        "-fx-text-fill: white;" +
+                        "-fx-font-size: 14px;" +
+                        "-fx-font-weight: 800;" +
+                        "-fx-background-radius: 16;" +
+                        "-fx-cursor: hand;"
         );
+    }
+
+    // ✅ FIX: name se mijenja u while petlji, pa prije lambda napravimo final kopiju
+    private static String resolveNameCollision(DocumentDao documentDao, int userId, String suggested) {
+        String name = (suggested == null || suggested.isBlank()) ? "Uvezeni projekat" : suggested.trim();
+
+        while (true) {
+            final String nameToCheck = name; // <-- OVO rješava "effectively final" problem
+
+            boolean exists = documentDao.findByUser(userId).stream()
+                    .anyMatch(d -> d.getName().equalsIgnoreCase(nameToCheck));
+
+            if (!exists) return name;
+
+            TextInputDialog dialog = new TextInputDialog(name + " (1)");
+            dialog.setHeaderText("Naziv projekta već postoji");
+            dialog.setContentText("Unesite novi naziv projekta:");
+            var result = dialog.showAndWait();
+
+            if (result.isEmpty() || result.get().isBlank()) {
+                throw new IllegalStateException("Uvoz otkazan (nije unesen novi naziv).");
+            }
+            name = result.get().trim();
+        }
     }
 }

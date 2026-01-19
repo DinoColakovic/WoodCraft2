@@ -3,6 +3,7 @@ package unze.ptf.woodcraft.woodcraft.ui;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.scene.Parent;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
@@ -67,6 +68,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javafx.scene.Node;
+
 
 public class MainView {
     private static final double RULER_SIZE = 24;
@@ -118,6 +121,11 @@ public class MainView {
     private CanvasPane.Mode currentTool = CanvasPane.Mode.DRAW_SHAPE;
     private UnitSystem unitSystem = UnitSystem.CM;
     private double currentWastePercent = 10.0;
+    private VBox sidebar;
+    private boolean sidebarVisible = true;
+
+        
+
 
     private final ToggleGroup plankModeGroup = new ToggleGroup();
     private final RadioButton plankByCount = new RadioButton("Po broju");
@@ -179,7 +187,9 @@ public class MainView {
         canvasRegion.setCenter(canvasPane);
 
         root.setCenter(canvasRegion);
-        root.setRight(buildSidebar());
+        sidebar = buildSidebar();
+        root.setRight(sidebar);
+
 
         canvasPane.setOnCanvasClicked(this::handleCanvasClick);
         canvasPane.setOnNodeClicked(this::handleNodeClick);
@@ -221,7 +231,16 @@ public class MainView {
         unitsToggle.setOnAction(event -> toggleUnits());
         view.getItems().add(unitsToggle);
         Menu window = new Menu("Prozor");
+        MenuItem toggleSidebarItem = new MenuItem("Prikaži / sakrij bočni panel");
+        toggleSidebarItem.setOnAction(e -> toggleSidebar());
+        window.getItems().add(toggleSidebarItem);
+
         Menu help = new Menu("Pomoc");
+        MenuItem helpItem = new MenuItem("Uputstvo za korištenje");
+        helpItem.setOnAction(event -> showHelpDialog());
+
+        help.getItems().add(helpItem);
+
 
         if (sessionManager.getCurrentUser() != null && sessionManager.getCurrentUser().getRole() == Role.ADMIN) {
             Menu admin = new Menu("Admin");
@@ -1979,9 +1998,42 @@ public class MainView {
             "-fx-border-radius: 4;" +       
             "-fx-border-color: " + border + ";" +
             "-fx-border-width: 1;" +
-            "-fx-padding: 4 10 4 10;" +      
+            "-fx-padding: 4 7 4 7;" +      
             "-fx-cursor: hand;"
     );
 }
+private void showHelpDialog() {
+    Alert alert = new Alert(Alert.AlertType.INFORMATION);
+    alert.setTitle("Pomoć – WoodCraft");
+    alert.setHeaderText("Uputstvo za korištenje aplikacije");
+
+    alert.setContentText(
+            "Osnovne funkcije:\n\n" +
+            "• Klik na platno – dodavanje tačke (node)\n" +
+            "• Povlačenje tačke – pomjeranje\n" +
+            "• Spajanje tačaka – kreiranje ivica\n" +
+            "• Dimenzije – mjerenje udaljenosti\n" +
+            "• Materijali – obračun cijene\n" +
+            "• Export PDF – izvoz projekta\n\n" +
+            "Savjet:\n" +
+            "Redovno čuvajte projekat.\n\n" +
+            "Kontakt:\n" +
+            "woodcraft.support@gmail.com"
+    );
+
+    alert.getDialogPane().setPrefWidth(480);
+    alert.showAndWait();
+}
+private void toggleSidebar() {
+    sidebarVisible = !sidebarVisible;
+
+    if (sidebarVisible) {
+        root.setRight(sidebar);
+    } else {
+        root.setRight(null);
+    }
+}
+
+
 
      }
