@@ -17,7 +17,10 @@ import unze.ptf.woodcraft.woodcraft.service.GeometryService;
 import unze.ptf.woodcraft.woodcraft.session.SessionManager;
 
 public class SceneNavigator {
+
     private final Stage stage;
+    private Scene scene; // ✅ Jedna scena za cijelu aplikaciju
+
     private final SessionManager sessionManager;
     private final AuthService authService;
     private final UserDao userDao;
@@ -31,6 +34,13 @@ public class SceneNavigator {
     private final ManualShapeDao manualShapeDao;
     private final GeometryService geometryService;
     private final EstimationService estimationService;
+
+    // ✅ željene dimenzije prozora (desktop feeling)
+    private static final double START_W = 980;
+    private static final double START_H = 700;
+
+    private static final double MIN_W = 900;
+    private static final double MIN_H = 650;
 
     public SceneNavigator(Stage stage, SessionManager sessionManager, AuthService authService, UserDao userDao,
                           MaterialDao materialDao, DocumentDao documentDao, DimensionDao dimensionDao, NodeDao nodeDao,
@@ -53,37 +63,49 @@ public class SceneNavigator {
     }
 
     public void showInitialScene() {
+        stage.setTitle("WoodCraft Planer");
+
+        stage.setWidth(START_W);
+        stage.setHeight(START_H);
+        stage.setMinWidth(MIN_W);
+        stage.setMinHeight(MIN_H);
+        stage.setResizable(true);
+
+        scene = new Scene(new javafx.scene.layout.StackPane(), START_W, START_H);
+        stage.setScene(scene);
+
         if (userDao.countUsers() == 0) {
             showSignup();
         } else {
             showLogin();
         }
-        stage.setTitle("WoodCraft Planer");
+
         stage.show();
     }
 
     public void showLogin() {
         LoginView view = new LoginView(authService, this);
-        Scene scene = new Scene(view.getRoot(), 620, 420);
-        stage.setScene(scene);
+        scene.setRoot(view.getRoot()); 
     }
 
     public void showSignup() {
         SignupView view = new SignupView(authService, this, userDao);
-        Scene scene = new Scene(view.getRoot(), 620, 450);
-        stage.setScene(scene);
+        scene.setRoot(view.getRoot()); 
     }
 
     public void showProjects() {
         ProjectListView view = new ProjectListView(sessionManager, documentDao, this);
-        Scene scene = new Scene(view.getRoot(), 620, 520);
-        stage.setScene(scene);
+        scene.setRoot(view.getRoot()); 
     }
 
     public void showMain(int documentId) {
-        MainView view = new MainView(sessionManager, authService, userDao, materialDao, documentDao, dimensionDao,
-                nodeDao, edgeDao, guideDao, shapeDao, manualShapeDao, geometryService, estimationService, this, documentId);
-        Scene scene = new Scene(view.getRoot(), 1200, 800);
-        stage.setScene(scene);
+        MainView view = new MainView(
+                sessionManager, authService, userDao, materialDao, documentDao, dimensionDao,
+                nodeDao, edgeDao, guideDao, shapeDao, manualShapeDao, geometryService, estimationService, this, documentId
+        );
+        scene.setRoot(view.getRoot()); // ✅ ne mijenja se veličina prozora
+
+        if (stage.getWidth() < 1200) stage.setWidth(1200);
+        if (stage.getHeight() < 800) stage.setHeight(800);
     }
 }

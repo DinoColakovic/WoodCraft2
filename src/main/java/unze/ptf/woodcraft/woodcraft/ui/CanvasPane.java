@@ -2179,4 +2179,17 @@ public class CanvasPane extends Pane {
             this.points = points;
         }
     }
+    public boolean isNodeLayerVisible() {
+    return nodeLayer.isVisible();
+}
+
+public void setNodeLayerVisible(boolean visible) {
+    nodeLayer.setVisible(visible);
+}
+    public boolean isShapeLayerVisible() {
+        return shapeLayer.isVisible();
+    }   
+
+    
+
 }

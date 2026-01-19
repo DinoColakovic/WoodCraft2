@@ -166,6 +166,9 @@ public class MainView {
         ToolBar toolBar = buildToolBar();
         VBox top = new VBox(menuBar, toolBar);
         root.setTop(top);
+        root.setStyle(
+    "-fx-background-color: linear-gradient(to bottom right, #F3F0E8, #FFFFFF);" 
+);
 
         BorderPane canvasRegion = new BorderPane();
         horizontalRuler.setPrefHeight(RULER_SIZE);
@@ -231,45 +234,65 @@ public class MainView {
         return new MenuBar(file, edit, view, window, help);
     }
 
-    private ToolBar buildToolBar() {
-        ToggleGroup tools = new ToggleGroup();
+   private ToolBar buildToolBar() {
+    ToggleGroup tools = new ToggleGroup();
 
-        ToggleButton selectTool = new ToggleButton("Odabir");
-        selectTool.setToggleGroup(tools);
-        selectTool.setOnAction(event -> setTool(CanvasPane.Mode.SELECT));
+    ToggleButton selectTool = new ToggleButton("Odabir");
+    selectTool.setToggleGroup(tools);
+    selectTool.setOnAction(event -> setTool(CanvasPane.Mode.SELECT));
 
-        ToggleButton drawShape = new ToggleButton("Crtaj oblik");
-        drawShape.setToggleGroup(tools);
-        drawShape.setSelected(true);
-        drawShape.setOnAction(event -> setTool(CanvasPane.Mode.DRAW_SHAPE));
+    ToggleButton drawShape = new ToggleButton("Crtaj oblik");
+    drawShape.setToggleGroup(tools);
+    drawShape.setSelected(true);
+    drawShape.setOnAction(event -> setTool(CanvasPane.Mode.DRAW_SHAPE));
 
-        ToggleButton moveNode = new ToggleButton("Pomakni cvor");
-        moveNode.setToggleGroup(tools);
-        moveNode.setOnAction(event -> setTool(CanvasPane.Mode.MOVE_NODE));
+    ToggleButton moveNode = new ToggleButton("Pomakni cvor");
+    moveNode.setToggleGroup(tools);
+    moveNode.setOnAction(event -> setTool(CanvasPane.Mode.MOVE_NODE));
 
-        ToggleButton deleteNode = new ToggleButton("Brisi cvorove");
-        deleteNode.setToggleGroup(tools);
-        deleteNode.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_NODE));
+    ToggleButton deleteNode = new ToggleButton("Brisi cvorove");
+    deleteNode.setToggleGroup(tools);
+    deleteNode.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_NODE));
 
-        ToggleButton dimensionTool = new ToggleButton("Kote");
-        dimensionTool.setToggleGroup(tools);
-        dimensionTool.setOnAction(event -> setTool(CanvasPane.Mode.DIMENSION));
+    ToggleButton dimensionTool = new ToggleButton("Kote");
+    dimensionTool.setToggleGroup(tools);
+    dimensionTool.setOnAction(event -> setTool(CanvasPane.Mode.DIMENSION));
 
-        ToggleButton sliceTool = new ToggleButton("Rez");
-        sliceTool.setToggleGroup(tools);
-        sliceTool.setOnAction(event -> setTool(CanvasPane.Mode.SLICE));
+    ToggleButton sliceTool = new ToggleButton("Rez");
+    sliceTool.setToggleGroup(tools);
+    sliceTool.setOnAction(event -> setTool(CanvasPane.Mode.SLICE));
 
-        ToggleButton deleteDimension = new ToggleButton("Brisi kote");
-        deleteDimension.setToggleGroup(tools);
-        deleteDimension.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_DIMENSION));
+    ToggleButton deleteDimension = new ToggleButton("Brisi kote");
+    deleteDimension.setToggleGroup(tools);
+    deleteDimension.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_DIMENSION));
 
-        ToggleButton deleteGuide = new ToggleButton("Brisi vodilice");
-        deleteGuide.setToggleGroup(tools);
-        deleteGuide.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_GUIDE));
+    ToggleButton deleteGuide = new ToggleButton("Brisi vodilice");
+    deleteGuide.setToggleGroup(tools);
+    deleteGuide.setOnAction(event -> setTool(CanvasPane.Mode.DELETE_GUIDE));
 
-        return new ToolBar(selectTool, drawShape, moveNode, dimensionTool, sliceTool,
-                deleteNode, deleteDimension, deleteGuide);
-    }
+    hookToolToggle(selectTool);
+    hookToolToggle(drawShape);
+    hookToolToggle(moveNode);
+    hookToolToggle(deleteNode);
+    hookToolToggle(dimensionTool);
+    hookToolToggle(sliceTool);
+    hookToolToggle(deleteDimension);
+    hookToolToggle(deleteGuide);
+
+    ToolBar bar = new ToolBar(
+            selectTool, drawShape, moveNode, dimensionTool, sliceTool,
+            deleteNode, deleteDimension, deleteGuide
+    );
+
+    bar.setStyle(
+            "-fx-background-color: rgba(255,255,255,0.72);" +
+            "-fx-border-color: rgba(42, 40, 40, 0.99);" +
+            "-fx-border-width: 0 0 1 0;" +
+            "-fx-padding: 4 8 4 8;"
+    );
+
+    return bar;
+}
 
     private VBox buildSidebar() {
         VBox sidebar = new VBox(10);
@@ -1220,27 +1243,134 @@ public class MainView {
     }
 
     private void exportPdf() {
-        if (currentDocument == null) {
-            return;
-        }
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Izvoz PDF");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF datoteke", "*.pdf"));
-        File target = chooser.showSaveDialog(root.getScene().getWindow());
-        if (target == null) {
-            return;
-        }
-        try {
-            pdfExportService.export(
-                    currentDocument,
-                    nodeDao.findByDocument(currentDocument.getId()),
-                    edgeDao.findByDocument(currentDocument.getId()),
-                    target
-            );
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        }
+    if (currentDocument == null) {
+        return;
     }
+
+    FileChooser chooser = new FileChooser();
+    chooser.setTitle("Izvoz PDF (snapshot)");
+    chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF datoteke", "*.pdf"));
+    File target = chooser.showSaveDialog(root.getScene().getWindow());
+    if (target == null) {
+        return;
+    }
+
+    try {
+        javafx.scene.SnapshotParameters sp = new javafx.scene.SnapshotParameters();
+        sp.setFill(javafx.scene.paint.Color.WHITE); // bijela pozadina u PDF-u
+        boolean stariPrikazCvorova = canvasPane.isNodeLayerVisible();
+        canvasPane.setNodeLayerVisible(false);
+
+        javafx.scene.image.WritableImage fxImage = canvasPane.snapshot(sp, null);
+
+        canvasPane.setNodeLayerVisible(stariPrikazCvorova);
+
+        java.awt.image.BufferedImage buffered = fxImageToBufferedImage(fxImage);
+
+        org.apache.pdfbox.pdmodel.common.PDRectangle portrait = org.apache.pdfbox.pdmodel.common.PDRectangle.A4;
+        org.apache.pdfbox.pdmodel.common.PDRectangle landscape =
+                new org.apache.pdfbox.pdmodel.common.PDRectangle(portrait.getHeight(), portrait.getWidth());
+
+        double imgRatio = (double) buffered.getWidth() / (double) buffered.getHeight();
+        double a4PortraitRatio = portrait.getWidth() / portrait.getHeight();
+
+        org.apache.pdfbox.pdmodel.common.PDRectangle pageSize = (imgRatio > a4PortraitRatio) ? landscape : portrait;
+
+        try (org.apache.pdfbox.pdmodel.PDDocument pdf = new org.apache.pdfbox.pdmodel.PDDocument()) {
+            org.apache.pdfbox.pdmodel.PDPage page = new org.apache.pdfbox.pdmodel.PDPage(pageSize);
+            pdf.addPage(page);
+
+            org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject pdImage =
+                    org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdf, buffered);
+
+            float margin = 36f; 
+            float titleBlockHeight = 70f; 
+
+            float availableW = pageSize.getWidth() - 2 * margin;
+            float availableH = pageSize.getHeight() - 2 * margin - titleBlockHeight;
+
+            float drawW = availableW;
+            float drawH = (float) (availableW / imgRatio);
+
+            if (drawH > availableH) {
+                drawH = availableH;
+                drawW = (float) (availableH * imgRatio);
+            }
+
+            float x = (pageSize.getWidth() - drawW) / 2f;
+            float y = margin + titleBlockHeight + (availableH - drawH) / 2f;
+
+            try (org.apache.pdfbox.pdmodel.PDPageContentStream content =
+                         new org.apache.pdfbox.pdmodel.PDPageContentStream(pdf, page)) {
+
+                content.setNonStrokingColor(new java.awt.Color(255, 255, 255));
+                content.addRect(margin, margin, pageSize.getWidth() - 2 * margin, pageSize.getHeight() - 2 * margin);
+                content.fill();
+
+                content.drawImage(pdImage, x, y, drawW, drawH);
+
+                float tbX = margin;
+                float tbY = margin;
+                float tbW = pageSize.getWidth() - 2 * margin;
+                float tbH = titleBlockHeight;
+
+                content.setStrokingColor(new java.awt.Color(40, 40, 40));
+                content.setLineWidth(1f);
+                content.addRect(tbX, tbY, tbW, tbH);
+                content.stroke();
+
+                content.beginText();
+                content.setNonStrokingColor(new java.awt.Color(40, 40, 40));
+                content.setFont(org.apache.pdfbox.pdmodel.font.PDType1Font.HELVETICA_BOLD, 12);
+                content.newLineAtOffset(tbX + 10, tbY + tbH - 18);
+                content.showText("WoodCraft - Export");
+                content.endText();
+
+                String docInfo = String.format("Platno: %.1f cm x %.1f cm | Kerf: %.1f mm | Unit: %s",
+                        currentDocument.getWidthCm(),
+                        currentDocument.getHeightCm(),
+                        currentDocument.getKerfMm(),
+                        currentDocument.getUnitSystem() == null ? "-" : currentDocument.getUnitSystem().name()
+                );
+
+                content.beginText();
+                content.setFont(org.apache.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 10);
+                content.newLineAtOffset(tbX + 10, tbY + tbH - 38);
+                content.showText(docInfo);
+                content.endText();
+
+                String extra = "Izvezeno: " +
+                 java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")) +
+                " · WoodCraft";                content.beginText();
+                content.setFont(org.apache.pdfbox.pdmodel.font.PDType1Font.HELVETICA, 10);
+                content.newLineAtOffset(tbX + 10, tbY + 14);
+                content.showText(extra);
+                content.endText();
+            }
+
+            pdf.save(target);
+        }
+
+    } catch (Exception exception) {
+        exception.printStackTrace();
+    }
+}
+    private static java.awt.image.BufferedImage fxImageToBufferedImage(javafx.scene.image.WritableImage fxImage) {
+    int w = (int) fxImage.getWidth();
+    int h = (int) fxImage.getHeight();
+
+    java.awt.image.BufferedImage buffered = new java.awt.image.BufferedImage(
+            w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB
+    );
+
+    javafx.scene.image.PixelReader reader = fxImage.getPixelReader();
+    int[] pixels = new int[w * h];
+    reader.getPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), pixels, 0, w);
+
+    buffered.setRGB(0, 0, w, h, pixels, 0, w);
+    return buffered;
+}
+
 
     private void updateCutList() {
         cutList.getItems().clear();
@@ -1809,4 +1939,49 @@ public class MainView {
             case VERTICAL -> "okomito";
         };
     }
+    private void hookToolToggle(ToggleButton b) {
+    styleToolToggle(b, false);
+
+    b.setOnMouseEntered(e -> styleToolToggle(b, true));
+    b.setOnMouseExited(e -> styleToolToggle(b, false));
+
+    b.selectedProperty().addListener((obs, o, n) -> styleToolToggle(b, b.isHover()));
+    
+    b.setPrefHeight(32);
+    b.setMinHeight(32);
+    
+}  
+   
+
+        private void styleToolToggle(ToggleButton b, boolean hover) {
+    boolean selected = b.isSelected();
+
+    String bg;
+    String border;
+    String text;
+
+    if (selected) {
+        bg = "#6E8F6A";
+        border = "#6E8F6A";
+        text = "white";
+    } else {
+        bg = hover ? "rgba(110,143,106,0.18)" : "rgba(255,255,255,0.80)";
+        border = hover ? "#6E8F6A" : "rgba(0,0,0,0.25)";
+        text = "#2C2C2C";
+    }
+
+    b.setStyle(
+            "-fx-background-color: " + bg + ";" +
+            "-fx-text-fill: " + text + ";" +
+            "-fx-font-size: 12px;" +
+            "-fx-font-weight: 700;" +
+            "-fx-background-radius: 4;" +   
+            "-fx-border-radius: 4;" +       
+            "-fx-border-color: " + border + ";" +
+            "-fx-border-width: 1;" +
+            "-fx-padding: 4 10 4 10;" +      
+            "-fx-cursor: hand;"
+    );
 }
+
+     }
