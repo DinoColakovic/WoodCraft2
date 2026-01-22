@@ -134,7 +134,19 @@ public class CanvasPane extends Pane {
     private double selectionStartX;
     private double selectionStartY;
     private boolean selectionDragging;
+    private boolean selectionRectArmed;
+    private double selectionPressX;
+    private double selectionPressY;
     private Point2D selectionDragStartCm;
+    private boolean suppressNextClick;
+    private boolean movePreviewActive;
+    private boolean finalizeMoveInProgress;
+    private final java.util.Map<Integer, Point2D> moveNodeStart = new java.util.HashMap<>();
+    private final java.util.Set<Integer> moveNodeIds = new java.util.HashSet<>();
+    private boolean bulkMoveActive;
+    private Point2D bulkMoveDelta;
+    private final java.util.Set<Integer> bulkMoveNodes = new java.util.HashSet<>();
+    private final java.util.Set<Integer> bulkMoveEdges = new java.util.HashSet<>();
     private java.util.Map<Integer, Point2D> selectionNodeStart = new java.util.HashMap<>();
     private java.util.Map<Integer, Double> selectionGuideStart = new java.util.HashMap<>();
     private java.util.Map<Integer, Dimension> selectionDimensionStart = new java.util.HashMap<>();
@@ -190,20 +202,6 @@ public class CanvasPane extends Pane {
                 event.consume();
                 return;
             }
-            if (event.getButton() == MouseButton.PRIMARY
-                    && (mode == Mode.DELETE_NODE || mode == Mode.DELETE_GUIDE || mode == Mode.DELETE_DIMENSION
-                    || mode == Mode.SELECT)
-                    && (event.getTarget() == this || event.getTarget() == boardRect)) {
-                selectionStartX = event.getX();
-                selectionStartY = event.getY();
-                selectionRect.setX(selectionStartX);
-                selectionRect.setY(selectionStartY);
-                selectionRect.setWidth(0);
-                selectionRect.setHeight(0);
-                selectionRect.setVisible(true);
-                event.consume();
-                return;
-            }
             if (event.getButton() == MouseButton.PRIMARY && mode == Mode.DRAW_RECT
                     && (event.getTarget() == this || event.getTarget() == boardRect)) {
                 rectStartCm = toCm(event.getX(), event.getY());
@@ -250,19 +248,6 @@ public class CanvasPane extends Pane {
                 event.consume();
                 return;
             }
-            if (selectionRect.isVisible() && (mode == Mode.DELETE_NODE || mode == Mode.DELETE_GUIDE
-                    || mode == Mode.DELETE_DIMENSION || mode == Mode.SELECT)) {
-                double x = Math.min(selectionStartX, event.getX());
-                double y = Math.min(selectionStartY, event.getY());
-                double w = Math.abs(event.getX() - selectionStartX);
-                double h = Math.abs(event.getY() - selectionStartY);
-                selectionRect.setX(x);
-                selectionRect.setY(y);
-                selectionRect.setWidth(w);
-                selectionRect.setHeight(h);
-                event.consume();
-                return;
-            }
             if (rectPreview.isVisible() && mode == Mode.DRAW_RECT) {
                 double x = Math.min(rectStartX, event.getX());
                 double y = Math.min(rectStartY, event.getY());
@@ -289,35 +274,6 @@ public class CanvasPane extends Pane {
             }
             if (selectionDragging) {
                 finishSelectionDrag();
-                event.consume();
-                return;
-            }
-            if (selectionRect.isVisible() && (mode == Mode.DELETE_NODE || mode == Mode.DELETE_GUIDE
-                    || mode == Mode.DELETE_DIMENSION || mode == Mode.SELECT)) {
-                selectionRect.setVisible(false);
-                if (mode == Mode.SELECT) {
-                    applySelectionFromRect(event.isShiftDown());
-                    event.consume();
-                    return;
-                }
-                if (mode == Mode.DELETE_NODE && onDeleteNodes != null) {
-                    List<Integer> selected = collectNodesInSelection();
-                    if (!selected.isEmpty()) {
-                        onDeleteNodes.accept(selected);
-                    }
-                }
-                if (mode == Mode.DELETE_GUIDE && onDeleteGuides != null) {
-                    List<Integer> guideIds = collectGuidesInSelection();
-                    if (!guideIds.isEmpty()) {
-                        onDeleteGuides.accept(guideIds);
-                    }
-                }
-                if (mode == Mode.DELETE_DIMENSION && onDeleteDimensions != null) {
-                    List<Integer> dimensionIds = collectDimensionsInSelection();
-                    if (!dimensionIds.isEmpty()) {
-                        onDeleteDimensions.accept(dimensionIds);
-                    }
-                }
                 event.consume();
                 return;
             }
@@ -359,6 +315,11 @@ public class CanvasPane extends Pane {
                 return;
             }
             if (mode == Mode.SELECT) {
+                if (suppressNextClick) {
+                    suppressNextClick = false;
+                    event.consume();
+                    return;
+                }
                 clearSelection();
                 if (onShapeClicked != null) {
                     onShapeClicked.accept(-1);
@@ -371,6 +332,97 @@ public class CanvasPane extends Pane {
             }
             if (onCanvasClicked != null) {
                 onCanvasClicked.accept(toCm(event.getX(), event.getY()));
+            }
+        });
+
+        addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+            if (event.getButton() != MouseButton.PRIMARY) {
+                return;
+            }
+            if (mode != Mode.DELETE_NODE && mode != Mode.DELETE_GUIDE
+                    && mode != Mode.DELETE_DIMENSION && mode != Mode.SELECT) {
+                return;
+            }
+            if (!isSelectionRectStartTarget(event.getTarget())) {
+                return;
+            }
+            selectionRectArmed = true;
+            selectionPressX = event.getX();
+            selectionPressY = event.getY();
+        });
+
+        addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
+            if (event.getButton() != MouseButton.PRIMARY) {
+                return;
+            }
+            if (mode != Mode.DELETE_NODE && mode != Mode.DELETE_GUIDE
+                    && mode != Mode.DELETE_DIMENSION && mode != Mode.SELECT) {
+                return;
+            }
+            if (selectionRectArmed && !selectionRect.isVisible()) {
+                double dx = event.getX() - selectionPressX;
+                double dy = event.getY() - selectionPressY;
+                if (Math.hypot(dx, dy) < 3) {
+                    return;
+                }
+                selectionRectArmed = false;
+                selectionStartX = selectionPressX;
+                selectionStartY = selectionPressY;
+                selectionRect.setX(selectionStartX);
+                selectionRect.setY(selectionStartY);
+                selectionRect.setWidth(0);
+                selectionRect.setHeight(0);
+                selectionRect.setVisible(true);
+            }
+            if (selectionRect.isVisible()) {
+                double x = Math.min(selectionStartX, event.getX());
+                double y = Math.min(selectionStartY, event.getY());
+                double w = Math.abs(event.getX() - selectionStartX);
+                double h = Math.abs(event.getY() - selectionStartY);
+                selectionRect.setX(x);
+                selectionRect.setY(y);
+                selectionRect.setWidth(w);
+                selectionRect.setHeight(h);
+                event.consume();
+            }
+        });
+
+        addEventFilter(MouseEvent.MOUSE_RELEASED, event -> {
+            if (event.getButton() != MouseButton.PRIMARY) {
+                return;
+            }
+            selectionRectArmed = false;
+            if (selectionRect.isVisible() && (mode == Mode.DELETE_NODE || mode == Mode.DELETE_GUIDE
+                    || mode == Mode.DELETE_DIMENSION || mode == Mode.SELECT)) {
+                selectionRect.setVisible(false);
+                suppressNextClick = true;
+                if (mode == Mode.SELECT) {
+                    applySelectionFromRect(event.isShiftDown());
+                    event.consume();
+                    return;
+                }
+                if (mode == Mode.DELETE_NODE && onDeleteNodes != null) {
+                    List<Integer> selected = collectNodesInSelection();
+                    if (!selected.isEmpty()) {
+                        onDeleteNodes.accept(selected);
+                    }
+                }
+                if (mode == Mode.DELETE_GUIDE && onDeleteGuides != null) {
+                    List<Integer> guideIds = collectGuidesInSelection();
+                    if (!guideIds.isEmpty()) {
+                        onDeleteGuides.accept(guideIds);
+                    }
+                }
+                if (mode == Mode.DELETE_DIMENSION && onDeleteDimensions != null) {
+                    List<Integer> dimensionIds = collectDimensionsInSelection();
+                    if (!dimensionIds.isEmpty()) {
+                        onDeleteDimensions.accept(dimensionIds);
+                    }
+                }
+                event.consume();
+            }
+            if (mode == Mode.MOVE_NODE && !selectionDragging && movingNodeId == null) {
+                setMovePreviewActive(false);
             }
         });
 
@@ -501,6 +553,18 @@ public class CanvasPane extends Pane {
         updateSelectionStyles();
     }
 
+    public void setSelectedNodes(List<Integer> nodeIds) {
+        clearSelectionSets();
+        if (nodeIds != null) {
+            selectedNodes.addAll(nodeIds);
+        }
+        if (!selectedNodes.isEmpty()) {
+            selectedNodeId = selectedNodes.iterator().next();
+            selectedShapeId = null;
+        }
+        updateSelectionStyles();
+    }
+
     public void clearSelection() {
         clearSelectionSets();
         updateSelectionStyles();
@@ -540,6 +604,9 @@ public class CanvasPane extends Pane {
 
     public void setMode(Mode mode) {
         this.mode = mode;
+        if (mode != Mode.MOVE_NODE) {
+            setMovePreviewActive(false);
+        }
         if (mode == Mode.DRAW_SHAPE || mode == Mode.DRAW_RECT) {
             setCursor(Cursor.CROSSHAIR);
         } else if (mode == Mode.DIMENSION) {
@@ -743,6 +810,17 @@ public class CanvasPane extends Pane {
         selectedDimensions.addAll(collectDimensionsInSelection());
         selectedShapes.addAll(collectShapesInSelection());
         selectedManualShapes.addAll(collectManualShapesInSelection());
+        if (!selectedShapes.isEmpty()) {
+            for (Integer shapeId : new java.util.ArrayList<>(selectedShapes)) {
+                ShapePolygon shape = findShape(shapeId);
+                if (shape == null) {
+                    continue;
+                }
+                for (NodePoint node : resolveShapeNodes(shape)) {
+                    selectedNodes.add(node.getId());
+                }
+            }
+        }
         if (!selectedNodes.isEmpty()) {
             selectedNodeId = selectedNodes.iterator().next();
             selectedShapeId = null;
@@ -752,6 +830,38 @@ public class CanvasPane extends Pane {
         }
         updateSelectionStyles();
         notifySelectionChanged();
+    }
+
+    private boolean isSelectionRectStartTarget(Object target) {
+        if (!(target instanceof javafx.scene.Node node)) {
+            return false;
+        }
+        if (nodeViews.containsValue(node)) {
+            return false;
+        }
+        if (handleLayer.getChildren().contains(node) || node.getParent() == handleLayer) {
+            return false;
+        }
+        return target == this
+                || target == boardRect
+                || target == boardLayer
+                || target == shapeLayer
+                || target == manualShapeLayer
+                || target == plankLayer
+                || target == edgeLayer
+                || target == dimensionLayer
+                || target == dimensionPreviewLayer
+                || target == sliceLayer
+                || target == nodeLayer
+                || target == guideLayer
+                || target == contentLayer
+                || node.getParent() == shapeLayer
+                || node.getParent() == manualShapeLayer
+                || node.getParent() == edgeLayer
+                || node.getParent() == dimensionLayer
+                || node.getParent() == dimensionPreviewLayer
+                || node.getParent() == guideLayer
+                || node.getParent() == boardLayer;
     }
 
     private void notifySelectionChanged() {
@@ -764,26 +874,39 @@ public class CanvasPane extends Pane {
     private void startSelectionDrag(Point2D startCm) {
         selectionDragging = true;
         selectionDragStartCm = startCm;
+        if (mode == Mode.MOVE_NODE) {
+            setMovePreviewActive(true);
+        }
         selectionNodeStart = new HashMap<>();
         selectionGuideStart = new HashMap<>();
         selectionDimensionStart = new HashMap<>();
         selectionManualStart = new HashMap<>();
 
-        for (Integer nodeId : selectedNodes) {
-            NodePoint node = findNode(nodeId);
-            if (node != null) {
-                selectionNodeStart.put(nodeId, new Point2D(node.getXCm(), node.getYCm()));
-            }
-        }
+        java.util.Set<Integer> nodeIds = new java.util.HashSet<>();
+        nodeIds.addAll(selectedNodes);
         for (Integer shapeId : selectedShapes) {
             ShapePolygon shape = findShape(shapeId);
             if (shape == null) {
                 continue;
             }
-            List<NodePoint> shapeNodes = resolveShapeNodes(shape);
-            for (NodePoint node : shapeNodes) {
-                selectionNodeStart.putIfAbsent(node.getId(), new Point2D(node.getXCm(), node.getYCm()));
+            for (NodePoint node : resolveShapeNodes(shape)) {
+                nodeIds.add(node.getId());
             }
+        }
+        if (mode == Mode.MOVE_NODE && !nodeIds.isEmpty()) {
+            nodeIds = collectConnectedNodeIds(nodeIds);
+        }
+        for (Integer nodeId : nodeIds) {
+            NodePoint node = findNode(nodeId);
+            if (node != null) {
+                selectionNodeStart.put(nodeId, new Point2D(node.getXCm(), node.getYCm()));
+            }
+        }
+        if (mode == Mode.MOVE_NODE) {
+            moveNodeStart.clear();
+            moveNodeStart.putAll(selectionNodeStart);
+            moveNodeIds.clear();
+            moveNodeIds.addAll(selectionNodeStart.keySet());
         }
         for (Integer guideId : selectedGuides) {
             Guide guide = findGuide(guideId);
@@ -805,15 +928,49 @@ public class CanvasPane extends Pane {
         }
     }
 
+    private java.util.Set<Integer> collectConnectedNodeIds(java.util.Set<Integer> seedIds) {
+        java.util.Set<Integer> connected = new java.util.HashSet<>(seedIds);
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (Edge edge : edges) {
+                boolean hasStart = connected.contains(edge.getStartNodeId());
+                boolean hasEnd = connected.contains(edge.getEndNodeId());
+                if (hasStart && !hasEnd) {
+                    connected.add(edge.getEndNodeId());
+                    changed = true;
+                } else if (hasEnd && !hasStart) {
+                    connected.add(edge.getStartNodeId());
+                    changed = true;
+                }
+            }
+        }
+        return connected;
+    }
+
     private void updateSelectionDrag(Point2D currentCm) {
         if (selectionDragStartCm == null) {
             return;
         }
         Point2D delta = currentCm.subtract(selectionDragStartCm);
+        bulkMoveActive = true;
+        bulkMoveDelta = delta;
+        bulkMoveNodes.clear();
+        bulkMoveNodes.addAll(selectionNodeStart.keySet());
+        bulkMoveEdges.clear();
         for (Map.Entry<Integer, Point2D> entry : selectionNodeStart.entrySet()) {
             Point2D start = entry.getValue();
             updateNodePosition(entry.getKey(), start.add(delta), false);
         }
+        bulkMoveActive = false;
+        bulkMoveDelta = null;
+        for (Integer nodeId : selectionNodeStart.keySet()) {
+            updateConnectedEdges(nodeId);
+        }
+        updateShapePolygons();
+        refreshHandleLayer();
+        bulkMoveNodes.clear();
+        bulkMoveEdges.clear();
         boolean guidesChanged = false;
         for (Map.Entry<Integer, Double> entry : selectionGuideStart.entrySet()) {
             Guide guide = findGuide(entry.getKey());
@@ -861,6 +1018,9 @@ public class CanvasPane extends Pane {
         selectionDragging = false;
         if (selectionDragStartCm == null) {
             return;
+        }
+        if (mode == Mode.MOVE_NODE) {
+            finalizeMoveControls();
         }
         if (onNodesMoved != null && !selectionNodeStart.isEmpty()) {
             List<NodePoint> moved = new ArrayList<>();
@@ -963,6 +1123,11 @@ public class CanvasPane extends Pane {
         circle.setStroke(Color.WHITE);
         circle.setStrokeWidth(1);
         circle.setOnMouseClicked(event -> {
+            if (suppressNextClick) {
+                suppressNextClick = false;
+                event.consume();
+                return;
+            }
             if (mode == Mode.DIMENSION) {
                 handleDimensionClick(new Point2D(node.getXCm(), node.getYCm()));
                 event.consume();
@@ -983,11 +1148,15 @@ public class CanvasPane extends Pane {
         circle.setOnMousePressed(event -> {
             if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                 boolean wasSelected = selectedNodes.contains(node.getId());
-                boolean additive = event.isShiftDown();
-                toggleSelection(SelectableType.NODE, node.getId(), additive);
-                if (wasSelected && !additive) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                if (event.isShiftDown()) {
+                    toggleSelection(SelectableType.NODE, node.getId(), true);
+                } else if (!wasSelected) {
+                    clearSelectionSets();
+                    selectedNodes.add(node.getId());
+                    selectedNodeId = node.getId();
+                    selectedShapeId = null;
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
                 event.consume();
                 return;
@@ -996,7 +1165,17 @@ public class CanvasPane extends Pane {
                 if (onNodeClicked != null) {
                     onNodeClicked.accept(node.getId());
                 }
-                movingNodeId = node.getId();
+                if (selectedNodes.contains(node.getId()) && selectedNodes.size() > 1) {
+                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
+                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                } else {
+                    moveNodeStart.clear();
+                    moveNodeIds.clear();
+                    moveNodeStart.put(node.getId(), new Point2D(node.getXCm(), node.getYCm()));
+                    moveNodeIds.add(node.getId());
+                    setMovePreviewActive(true);
+                    movingNodeId = node.getId();
+                }
                 event.consume();
             }
         });
@@ -1016,6 +1195,7 @@ public class CanvasPane extends Pane {
             Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
             Point2D cmPoint = toCm(local.getX(), local.getY());
             updateNodePosition(node.getId(), cmPoint, event.isShiftDown());
+            finalizeMoveControls();
             if (onNodeMoveFinished != null) {
                 onNodeMoveFinished.accept(node.getId(), cmPoint);
             }
@@ -1068,11 +1248,13 @@ public class CanvasPane extends Pane {
         line.setOnMousePressed(event -> {
             if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                 boolean wasSelected = selectedGuides.contains(guide.getId());
-                boolean additive = event.isShiftDown();
-                toggleSelection(SelectableType.GUIDE, guide.getId(), additive);
-                if (wasSelected && !additive) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                if (event.isShiftDown()) {
+                    toggleSelection(SelectableType.GUIDE, guide.getId(), true);
+                } else if (!wasSelected) {
+                    clearSelectionSets();
+                    selectedGuides.add(guide.getId());
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
                 event.consume();
             }
@@ -1126,11 +1308,13 @@ public class CanvasPane extends Pane {
             arrow.setOnMousePressed(event -> {
                 if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                     boolean wasSelected = selectedDimensions.contains(dimension.getId());
-                    boolean additive = event.isShiftDown();
-                    toggleSelection(SelectableType.DIMENSION, dimension.getId(), additive);
-                    if (wasSelected && !additive) {
-                        Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                        startSelectionDrag(toCm(local.getX(), local.getY()));
+                    if (event.isShiftDown()) {
+                        toggleSelection(SelectableType.DIMENSION, dimension.getId(), true);
+                    } else if (!wasSelected) {
+                        clearSelectionSets();
+                        selectedDimensions.add(dimension.getId());
+                        updateSelectionStyles();
+                        notifySelectionChanged();
                     }
                     event.consume();
                 }
@@ -1158,11 +1342,13 @@ public class CanvasPane extends Pane {
         labelGroup.setOnMousePressed(event -> {
             if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                 boolean wasSelected = selectedDimensions.contains(dimension.getId());
-                boolean additive = event.isShiftDown();
-                toggleSelection(SelectableType.DIMENSION, dimension.getId(), additive);
-                if (wasSelected && !additive) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                if (event.isShiftDown()) {
+                    toggleSelection(SelectableType.DIMENSION, dimension.getId(), true);
+                } else if (!wasSelected) {
+                    clearSelectionSets();
+                    selectedDimensions.add(dimension.getId());
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
                 event.consume();
                 return;
@@ -1216,11 +1402,13 @@ public class CanvasPane extends Pane {
         dimensionLine.setOnMousePressed(event -> {
             if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                 boolean wasSelected = selectedDimensions.contains(dimension.getId());
-                boolean additive = event.isShiftDown();
-                toggleSelection(SelectableType.DIMENSION, dimension.getId(), additive);
-                if (wasSelected && !additive) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                if (event.isShiftDown()) {
+                    toggleSelection(SelectableType.DIMENSION, dimension.getId(), true);
+                } else if (!wasSelected) {
+                    clearSelectionSets();
+                    selectedDimensions.add(dimension.getId());
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
                 event.consume();
             }
@@ -1521,12 +1709,30 @@ public class CanvasPane extends Pane {
         polygon.setOnMousePressed(event -> {
             if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                 boolean wasSelected = selectedShapes.contains(shape.getId());
-                boolean additive = event.isShiftDown();
-                toggleSelection(SelectableType.SHAPE, shape.getId(), additive);
-                if (wasSelected && !additive) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                if (event.isShiftDown()) {
+                    toggleSelection(SelectableType.SHAPE, shape.getId(), true);
+                } else if (!wasSelected) {
+                    clearSelectionSets();
+                    selectedShapes.add(shape.getId());
+                    selectedShapeId = shape.getId();
+                    selectedNodeId = null;
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
+                event.consume();
+                return;
+            }
+            if (mode == Mode.MOVE_NODE && event.getButton() == MouseButton.PRIMARY) {
+                if (!selectedShapes.contains(shape.getId())) {
+                    clearSelectionSets();
+                    selectedShapes.add(shape.getId());
+                    selectedShapeId = shape.getId();
+                    selectedNodeId = null;
+                    updateSelectionStyles();
+                    notifySelectionChanged();
+                }
+                Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
+                startSelectionDrag(toCm(local.getX(), local.getY()));
                 event.consume();
             }
         });
@@ -1534,6 +1740,11 @@ public class CanvasPane extends Pane {
             Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
             Point2D cmPoint = toCm(local.getX(), local.getY());
             if (mode == Mode.SELECT) {
+                if (suppressNextClick) {
+                    suppressNextClick = false;
+                    event.consume();
+                    return;
+                }
                 if (onShapeClicked != null) {
                     onShapeClicked.accept(shape.getId());
                 }
@@ -1576,17 +1787,36 @@ public class CanvasPane extends Pane {
         polygon.setOnMousePressed(event -> {
             if (mode == Mode.SELECT && event.getButton() == MouseButton.PRIMARY) {
                 boolean wasSelected = selectedManualShapes.contains(shape.getId());
-                boolean additive = event.isShiftDown();
-                toggleSelection(SelectableType.MANUAL_SHAPE, shape.getId(), additive);
-                if (wasSelected && !additive) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
+                if (event.isShiftDown()) {
+                    toggleSelection(SelectableType.MANUAL_SHAPE, shape.getId(), true);
+                } else if (!wasSelected) {
+                    clearSelectionSets();
+                    selectedManualShapes.add(shape.getId());
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
+                event.consume();
+                return;
+            }
+            if (mode == Mode.MOVE_NODE && event.getButton() == MouseButton.PRIMARY) {
+                if (!selectedManualShapes.contains(shape.getId())) {
+                    clearSelectionSets();
+                    selectedManualShapes.add(shape.getId());
+                    updateSelectionStyles();
+                    notifySelectionChanged();
+                }
+                Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
+                startSelectionDrag(toCm(local.getX(), local.getY()));
                 event.consume();
             }
         });
         polygon.setOnMouseClicked(event -> {
             if (mode == Mode.SELECT) {
+                if (suppressNextClick) {
+                    suppressNextClick = false;
+                    event.consume();
+                    return;
+                }
                 event.consume();
                 return;
             }
@@ -1596,9 +1826,6 @@ public class CanvasPane extends Pane {
     }
 
     private List<NodePoint> resolveShapeNodes(ShapePolygon shape) {
-        if (shape.getNodes() != null && !shape.getNodes().isEmpty()) {
-            return shape.getNodes();
-        }
         Map<Integer, NodePoint> nodeMap = new HashMap<>();
         for (NodePoint node : nodes) {
             nodeMap.put(node.getId(), node);
@@ -1611,6 +1838,9 @@ public class CanvasPane extends Pane {
                     resolved.add(node);
                 }
             }
+        }
+        if (resolved.isEmpty() && shape.getNodes() != null && !shape.getNodes().isEmpty()) {
+            resolved.addAll(shape.getNodes());
         }
         return resolved;
     }
@@ -1638,9 +1868,11 @@ public class CanvasPane extends Pane {
             circle.setCenterX(xCm * scale);
             circle.setCenterY(yCm * scale);
         }
-        updateConnectedEdges(nodeId);
-        updateShapePolygons();
-        refreshHandleLayer();
+        if (!bulkMoveActive && !movePreviewActive) {
+            updateConnectedEdges(nodeId);
+            updateShapePolygons();
+            refreshHandleLayer();
+        }
     }
 
     private void updateDimensionsForNode(int nodeId, Point2D position) {
@@ -1675,6 +1907,68 @@ public class CanvasPane extends Pane {
         if (changed) {
             redrawGuides();
         }
+    }
+
+    private void finalizeMoveControls() {
+        if (moveNodeStart.isEmpty()) {
+            setMovePreviewActive(false);
+            return;
+        }
+        Point2D delta = null;
+        boolean uniform = true;
+        finalizeMoveInProgress = true;
+        for (Integer nodeId : moveNodeIds) {
+            Point2D start = moveNodeStart.get(nodeId);
+            NodePoint node = findNode(nodeId);
+            if (start == null || node == null) {
+                continue;
+            }
+            Point2D current = new Point2D(node.getXCm(), node.getYCm());
+            Point2D nodeDelta = current.subtract(start);
+            if (delta == null) {
+                delta = nodeDelta;
+            } else if (delta.distance(nodeDelta) > 1e-6) {
+                uniform = false;
+                break;
+            }
+        }
+        if (uniform && delta != null) {
+            bulkMoveActive = true;
+            bulkMoveDelta = delta;
+            bulkMoveNodes.clear();
+            bulkMoveNodes.addAll(moveNodeIds);
+            bulkMoveEdges.clear();
+            for (Integer nodeId : moveNodeIds) {
+                Point2D start = moveNodeStart.get(nodeId);
+                NodePoint node = findNode(nodeId);
+                if (start == null || node == null) {
+                    continue;
+                }
+                updateControlsForNode(nodeId, start, new Point2D(node.getXCm(), node.getYCm()));
+            }
+            bulkMoveActive = false;
+            bulkMoveDelta = null;
+            bulkMoveNodes.clear();
+            bulkMoveEdges.clear();
+        } else {
+            for (Integer nodeId : moveNodeIds) {
+                Point2D start = moveNodeStart.get(nodeId);
+                NodePoint node = findNode(nodeId);
+                if (start == null || node == null) {
+                    continue;
+                }
+                updateControlsForNode(nodeId, start, new Point2D(node.getXCm(), node.getYCm()));
+            }
+        }
+        finalizeMoveInProgress = false;
+        for (Integer nodeId : moveNodeIds) {
+            updateConnectedEdges(nodeId);
+        }
+        updateShapePolygons();
+        refreshHandleLayer();
+        moveNodeStart.clear();
+        moveNodeIds.clear();
+        setMovePreviewActive(false);
     }
 
     private void updateConnectedEdges(int nodeId) {
@@ -1793,6 +2087,20 @@ public class CanvasPane extends Pane {
         contentLayer.setTranslateY(panY);
     }
 
+    private void setMovePreviewActive(boolean active) {
+        if (movePreviewActive == active) {
+            return;
+        }
+        movePreviewActive = active;
+        shapeLayer.setVisible(!active);
+        manualShapeLayer.setVisible(!active);
+        edgeLayer.setVisible(!active);
+        plankLayer.setVisible(!active);
+        if (!active) {
+            updateShapePolygons();
+        }
+    }
+
     private void updateBoardAndClip() {
         double widthPx = canvasWidthCm * scale;
         double heightPx = canvasHeightCm * scale;
@@ -1807,44 +2115,46 @@ public class CanvasPane extends Pane {
         double maxX = selectionRect.getX() + selectionRect.getWidth();
         double minY = selectionRect.getY();
         double maxY = selectionRect.getY() + selectionRect.getHeight();
+        double paddingCm = (NODE_RADIUS * 2.0) / scale;
+        double minCmX = (minX - panX) / scale - paddingCm;
+        double maxCmX = (maxX - panX) / scale + paddingCm;
+        double minCmY = (minY - panY) / scale - paddingCm;
+        double maxCmY = (maxY - panY) / scale + paddingCm;
         List<Integer> selected = new ArrayList<>();
         for (NodePoint node : nodes) {
-            double x = node.getXCm() * scale + panX;
-            double y = node.getYCm() * scale + panY;
-            if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+            double xCm = node.getXCm();
+            double yCm = node.getYCm();
+            if (xCm >= minCmX && xCm <= maxCmX && yCm >= minCmY && yCm <= maxCmY) {
                 selected.add(node.getId());
+            }
+        }
+        for (Map.Entry<Integer, Circle> entry : nodeViews.entrySet()) {
+            Circle circle = entry.getValue();
+            if (circle == null) {
+                continue;
+            }
+            if (intersectsSelection(circle) && !selected.contains(entry.getKey())) {
+                selected.add(entry.getKey());
             }
         }
         return selected;
     }
 
     private List<Integer> collectGuidesInSelection() {
-        double minX = selectionRect.getX();
-        double maxX = selectionRect.getX() + selectionRect.getWidth();
-        double minY = selectionRect.getY();
-        double maxY = selectionRect.getY() + selectionRect.getHeight();
         List<Integer> selected = new ArrayList<>();
-        for (Guide guide : guides) {
-            if (guide.getOrientation() == Guide.Orientation.HORIZONTAL) {
-                double y = guide.getPositionCm() * scale + panY;
-                if (y >= minY && y <= maxY) {
-                    selected.add(guide.getId());
-                }
-            } else {
-                double x = guide.getPositionCm() * scale + panX;
-                if (x >= minX && x <= maxX) {
-                    selected.add(guide.getId());
-                }
+        for (Map.Entry<Integer, Line> entry : guideViews.entrySet()) {
+            Line line = entry.getValue();
+            if (line == null) {
+                continue;
+            }
+            if (intersectsSelection(line)) {
+                selected.add(entry.getKey());
             }
         }
         return selected;
     }
 
     private List<Integer> collectDimensionsInSelection() {
-        double minX = selectionRect.getX();
-        double maxX = selectionRect.getX() + selectionRect.getWidth();
-        double minY = selectionRect.getY();
-        double maxY = selectionRect.getY() + selectionRect.getHeight();
         List<Integer> selected = new ArrayList<>();
         for (Map.Entry<Integer, DimensionView> entry : dimensionViews.entrySet()) {
             DimensionView view = entry.getValue();
@@ -1852,19 +2162,14 @@ public class CanvasPane extends Pane {
                 continue;
             }
             if (view.labelGroup != null) {
-                var bounds = view.labelGroup.getBoundsInParent();
-                double centerX = bounds.getMinX() + bounds.getWidth() / 2;
-                double centerY = bounds.getMinY() + bounds.getHeight() / 2;
-                if (centerX >= minX && centerX <= maxX && centerY >= minY && centerY <= maxY) {
+                if (intersectsSelection(view.labelGroup)) {
                     selected.add(entry.getKey());
                     continue;
                 }
             }
             Line line = view.dimensionLine;
             if (line != null) {
-                double midX = (line.getStartX() + line.getEndX()) / 2.0;
-                double midY = (line.getStartY() + line.getEndY()) / 2.0;
-                if (midX >= minX && midX <= maxX && midY >= minY && midY <= maxY) {
+                if (intersectsSelection(line)) {
                     selected.add(entry.getKey());
                 }
             }
@@ -1873,19 +2178,13 @@ public class CanvasPane extends Pane {
     }
 
     private List<Integer> collectShapesInSelection() {
-        double minX = selectionRect.getX();
-        double maxX = selectionRect.getX() + selectionRect.getWidth();
-        double minY = selectionRect.getY();
-        double maxY = selectionRect.getY() + selectionRect.getHeight();
         List<Integer> selected = new ArrayList<>();
         for (Map.Entry<Integer, Polygon> entry : shapeViews.entrySet()) {
             Polygon polygon = entry.getValue();
             if (polygon == null) {
                 continue;
             }
-            var bounds = polygon.getBoundsInParent();
-            if (bounds.getMaxX() >= minX && bounds.getMinX() <= maxX
-                    && bounds.getMaxY() >= minY && bounds.getMinY() <= maxY) {
+            if (intersectsSelection(polygon)) {
                 selected.add(entry.getKey());
             }
         }
@@ -1893,23 +2192,27 @@ public class CanvasPane extends Pane {
     }
 
     private List<Integer> collectManualShapesInSelection() {
-        double minX = selectionRect.getX();
-        double maxX = selectionRect.getX() + selectionRect.getWidth();
-        double minY = selectionRect.getY();
-        double maxY = selectionRect.getY() + selectionRect.getHeight();
         List<Integer> selected = new ArrayList<>();
         for (Map.Entry<Integer, Polygon> entry : manualShapeViews.entrySet()) {
             Polygon polygon = entry.getValue();
             if (polygon == null) {
                 continue;
             }
-            var bounds = polygon.getBoundsInParent();
-            if (bounds.getMaxX() >= minX && bounds.getMinX() <= maxX
-                    && bounds.getMaxY() >= minY && bounds.getMinY() <= maxY) {
+            if (intersectsSelection(polygon)) {
                 selected.add(entry.getKey());
             }
         }
         return selected;
+    }
+
+    private boolean intersectsSelection(javafx.scene.Node node) {
+        javafx.geometry.Bounds selectionBounds = selectionRect.getBoundsInParent();
+        javafx.geometry.Bounds bounds = node.localToScene(node.getBoundsInLocal());
+        javafx.geometry.Bounds paneBounds = sceneToLocal(bounds);
+        return paneBounds.getMaxX() >= selectionBounds.getMinX()
+                && paneBounds.getMinX() <= selectionBounds.getMaxX()
+                && paneBounds.getMaxY() >= selectionBounds.getMinY()
+                && paneBounds.getMinY() <= selectionBounds.getMaxY();
     }
 
     private void updateSelectionStyles() {
@@ -2173,20 +2476,48 @@ public class CanvasPane extends Pane {
     }
 
     private void updateControlsForNode(int nodeId, Point2D previous, Point2D current) {
-        Point2D delta = current.subtract(previous);
+        if (movePreviewActive && !finalizeMoveInProgress) {
+            return;
+        }
+        Point2D delta = bulkMoveActive && bulkMoveDelta != null ? bulkMoveDelta : current.subtract(previous);
         for (Edge edge : edges) {
             EdgeControls controls = edgeControls.get(edge.getId());
             if (controls == null) {
                 continue;
             }
             boolean updated = false;
+            boolean startMoved = edge.getStartNodeId() == nodeId;
+            boolean endMoved = edge.getEndNodeId() == nodeId;
+            boolean otherMoved = bulkMoveActive && bulkMoveNodes.contains(
+                    startMoved ? edge.getEndNodeId() : edge.getStartNodeId()
+            );
+            if (bulkMoveActive && otherMoved) {
+                if (bulkMoveEdges.contains(edge.getId())) {
+                    continue;
+                }
+                Point2D start = controls.start();
+                Point2D end = controls.end();
+                if (start != null) {
+                    start = start.add(delta);
+                    updated = true;
+                }
+                if (end != null) {
+                    end = end.add(delta);
+                    updated = true;
+                }
+                if (updated) {
+                    edgeControls.put(edge.getId(), new EdgeControls(start, end));
+                    bulkMoveEdges.add(edge.getId());
+                }
+                continue;
+            }
             Point2D start = controls.start();
             Point2D end = controls.end();
-            if (edge.getStartNodeId() == nodeId && start != null) {
+            if (startMoved && start != null) {
                 start = start.add(delta);
                 updated = true;
             }
-            if (edge.getEndNodeId() == nodeId && end != null) {
+            if (endMoved && end != null) {
                 end = end.add(delta);
                 updated = true;
             }

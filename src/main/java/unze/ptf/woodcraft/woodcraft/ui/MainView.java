@@ -1367,9 +1367,13 @@ public class MainView {
         if (currentDocument == null) {
             return;
         }
-        List<ShapePolygon> computed = geometryService.buildShapes(currentDocument.getId(),
-                nodeDao.findByDocument(currentDocument.getId()),
-                edgeDao.findByDocument(currentDocument.getId()));
+        List<Integer> preservedNodeIds = (currentTool == CanvasPane.Mode.MOVE_NODE
+                || currentTool == CanvasPane.Mode.SELECT)
+                ? canvasPane.getSelectedNodeIds()
+                : List.of();
+        List<NodePoint> nodes = nodeDao.findByDocument(currentDocument.getId());
+        List<Edge> edges = edgeDao.findByDocument(currentDocument.getId());
+        List<ShapePolygon> computed = geometryService.buildShapes(currentDocument.getId(), nodes, edges);
         Material material = defaultMaterial.getSelectionModel().getSelectedItem();
         List<ShapePolygon> assigned = computed.stream()
                 .map(shape -> new ShapePolygon(-1, shape.getDocumentId(),
@@ -1380,6 +1384,23 @@ public class MainView {
         loadShapesFromDb();
         selectedShapeId = null;
         canvasPane.clearSelection();
+        if (!preservedNodeIds.isEmpty()) {
+            java.util.Set<Integer> existing = new java.util.HashSet<>();
+            for (NodePoint node : nodes) {
+                existing.add(node.getId());
+            }
+            List<Integer> restored = preservedNodeIds.stream()
+                    .filter(existing::contains)
+                    .toList();
+            if (!restored.isEmpty()) {
+                selectedNodeId = restored.get(0);
+                canvasPane.setSelectedNodes(restored);
+            } else {
+                selectedNodeId = null;
+            }
+        } else {
+            selectedNodeId = null;
+        }
         updateSelectedShapeSummary();
         updatePlankPreview();
         updateSummary();
@@ -1463,9 +1484,6 @@ public class MainView {
     }
 
     private List<NodePoint> resolveShapeNodes(ShapePolygon shape) {
-        if (shape.getNodes() != null && !shape.getNodes().isEmpty()) {
-            return shape.getNodes();
-        }
         List<NodePoint> nodes = nodeDao.findByDocument(currentDocument.getId());
         Map<Integer, NodePoint> nodeMap = new HashMap<>();
         for (NodePoint node : nodes) {
@@ -1479,6 +1497,9 @@ public class MainView {
                     resolved.add(node);
                 }
             }
+        }
+        if (resolved.isEmpty() && shape.getNodes() != null && !shape.getNodes().isEmpty()) {
+            resolved.addAll(shape.getNodes());
         }
         return resolved;
     }
