@@ -117,7 +117,6 @@ public class CanvasPane extends Pane {
     private final java.util.Set<Integer> selectedManualShapes = new java.util.HashSet<>();
     private Integer selectedNodeId;
     private Integer selectedShapeId;
-    private Integer movingNodeId;
     private Integer activeHandleEdgeId;
     private boolean activeHandleStart;
     private Point2D pendingDimensionStart;
@@ -133,24 +132,22 @@ public class CanvasPane extends Pane {
     private boolean panning;
     private double selectionStartX;
     private double selectionStartY;
-    private boolean selectionDragging;
     private boolean selectionRectArmed;
     private double selectionPressX;
     private double selectionPressY;
-    private Point2D selectionDragStartCm;
     private boolean suppressNextClick;
-    private boolean movePreviewActive;
-    private boolean finalizeMoveInProgress;
+    private boolean moveDragging;
+    private Point2D moveDragStartCm;
     private final java.util.Map<Integer, Point2D> moveNodeStart = new java.util.HashMap<>();
-    private final java.util.Set<Integer> moveNodeIds = new java.util.HashSet<>();
+    private final java.util.Map<Integer, EdgeControls> moveEdgeStart = new java.util.HashMap<>();
+    private final java.util.Map<Integer, Double> moveGuideStart = new java.util.HashMap<>();
+    private final java.util.Map<Integer, Dimension> moveDimensionStart = new java.util.HashMap<>();
+    private final java.util.Map<Integer, List<Point2D>> moveManualStart = new java.util.HashMap<>();
+    private Integer moveDragSingleNodeId;
     private boolean bulkMoveActive;
     private Point2D bulkMoveDelta;
     private final java.util.Set<Integer> bulkMoveNodes = new java.util.HashSet<>();
     private final java.util.Set<Integer> bulkMoveEdges = new java.util.HashSet<>();
-    private java.util.Map<Integer, Point2D> selectionNodeStart = new java.util.HashMap<>();
-    private java.util.Map<Integer, Double> selectionGuideStart = new java.util.HashMap<>();
-    private java.util.Map<Integer, Dimension> selectionDimensionStart = new java.util.HashMap<>();
-    private java.util.Map<Integer, List<Point2D>> selectionManualStart = new java.util.HashMap<>();
     private Point2D sliceStart;
     private Line slicePreview;
     private UnitSystem unitSystem = UnitSystem.CM;
@@ -242,9 +239,9 @@ public class CanvasPane extends Pane {
                 event.consume();
                 return;
             }
-            if (selectionDragging) {
+            if (moveDragging) {
                 Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                updateSelectionDrag(toCm(local.getX(), local.getY()));
+                updateMoveDrag(toCm(local.getX(), local.getY()));
                 event.consume();
                 return;
             }
@@ -272,8 +269,8 @@ public class CanvasPane extends Pane {
                 event.consume();
                 return;
             }
-            if (selectionDragging) {
-                finishSelectionDrag();
+            if (moveDragging) {
+                finishMoveDrag();
                 event.consume();
                 return;
             }
@@ -420,9 +417,6 @@ public class CanvasPane extends Pane {
                     }
                 }
                 event.consume();
-            }
-            if (mode == Mode.MOVE_NODE && !selectionDragging && movingNodeId == null) {
-                setMovePreviewActive(false);
             }
         });
 
@@ -604,9 +598,6 @@ public class CanvasPane extends Pane {
 
     public void setMode(Mode mode) {
         this.mode = mode;
-        if (mode != Mode.MOVE_NODE) {
-            setMovePreviewActive(false);
-        }
         if (mode == Mode.DRAW_SHAPE || mode == Mode.DRAW_RECT) {
             setCursor(Cursor.CROSSHAIR);
         } else if (mode == Mode.DIMENSION) {
@@ -871,19 +862,8 @@ public class CanvasPane extends Pane {
         }
     }
 
-    private void startSelectionDrag(Point2D startCm) {
-        selectionDragging = true;
-        selectionDragStartCm = startCm;
-        if (mode == Mode.MOVE_NODE) {
-            setMovePreviewActive(true);
-        }
-        selectionNodeStart = new HashMap<>();
-        selectionGuideStart = new HashMap<>();
-        selectionDimensionStart = new HashMap<>();
-        selectionManualStart = new HashMap<>();
-
-        java.util.Set<Integer> nodeIds = new java.util.HashSet<>();
-        nodeIds.addAll(selectedNodes);
+    private java.util.Set<Integer> collectMoveNodeIds() {
+        java.util.Set<Integer> nodeIds = new java.util.HashSet<>(selectedNodes);
         for (Integer shapeId : selectedShapes) {
             ShapePolygon shape = findShape(shapeId);
             if (shape == null) {
@@ -893,86 +873,119 @@ public class CanvasPane extends Pane {
                 nodeIds.add(node.getId());
             }
         }
-        if (mode == Mode.MOVE_NODE && !nodeIds.isEmpty()) {
-            nodeIds = collectConnectedNodeIds(nodeIds);
+        return nodeIds;
+    }
+
+    private void startMoveDrag(Point2D startCm, java.util.Set<Integer> nodeIds) {
+        if (startCm == null) {
+            return;
         }
-        for (Integer nodeId : nodeIds) {
-            NodePoint node = findNode(nodeId);
-            if (node != null) {
-                selectionNodeStart.put(nodeId, new Point2D(node.getXCm(), node.getYCm()));
+        boolean hasSelection = (nodeIds != null && !nodeIds.isEmpty())
+                || !selectedGuides.isEmpty()
+                || !selectedDimensions.isEmpty()
+                || !selectedManualShapes.isEmpty();
+        if (!hasSelection) {
+            return;
+        }
+        moveDragging = true;
+        moveDragStartCm = startCm;
+        moveNodeStart.clear();
+        moveEdgeStart.clear();
+        moveGuideStart.clear();
+        moveDimensionStart.clear();
+        moveManualStart.clear();
+        moveDragSingleNodeId = null;
+
+        if (nodeIds != null) {
+            for (Integer nodeId : nodeIds) {
+                NodePoint node = findNode(nodeId);
+                if (node != null) {
+                    moveNodeStart.put(nodeId, new Point2D(node.getXCm(), node.getYCm()));
+                }
             }
         }
-        if (mode == Mode.MOVE_NODE) {
-            moveNodeStart.clear();
-            moveNodeStart.putAll(selectionNodeStart);
-            moveNodeIds.clear();
-            moveNodeIds.addAll(selectionNodeStart.keySet());
+        if (moveNodeStart.size() == 1 && selectedShapes.isEmpty() && selectedManualShapes.isEmpty()) {
+            moveDragSingleNodeId = moveNodeStart.keySet().iterator().next();
+        }
+        for (Edge edge : edges) {
+            if (!moveNodeStart.containsKey(edge.getStartNodeId())
+                    && !moveNodeStart.containsKey(edge.getEndNodeId())) {
+                continue;
+            }
+            NodePoint start = findNode(edge.getStartNodeId());
+            NodePoint end = findNode(edge.getEndNodeId());
+            if (start == null || end == null) {
+                continue;
+            }
+            ensureEdgeControls(edge, start, end);
+            EdgeControls controls = edgeControls.get(edge.getId());
+            if (controls != null) {
+                moveEdgeStart.put(edge.getId(), new EdgeControls(
+                        controls.start() == null ? null : new Point2D(controls.start().getX(), controls.start().getY()),
+                        controls.end() == null ? null : new Point2D(controls.end().getX(), controls.end().getY())
+                ));
+            }
         }
         for (Integer guideId : selectedGuides) {
             Guide guide = findGuide(guideId);
             if (guide != null) {
-                selectionGuideStart.put(guideId, guide.getPositionCm());
+                moveGuideStart.put(guideId, guide.getPositionCm());
             }
         }
         for (Integer dimensionId : selectedDimensions) {
             Dimension dimension = findDimensionById(dimensionId);
             if (dimension != null) {
-                selectionDimensionStart.put(dimensionId, dimension);
+                moveDimensionStart.put(dimensionId, dimension);
             }
         }
         for (Integer manualId : selectedManualShapes) {
             ManualShape shape = findManualShape(manualId);
             if (shape != null) {
-                selectionManualStart.put(manualId, new ArrayList<>(shape.getPoints()));
+                moveManualStart.put(manualId, new ArrayList<>(shape.getPoints()));
             }
         }
     }
 
-    private java.util.Set<Integer> collectConnectedNodeIds(java.util.Set<Integer> seedIds) {
-        java.util.Set<Integer> connected = new java.util.HashSet<>(seedIds);
-        boolean changed = true;
-        while (changed) {
-            changed = false;
-            for (Edge edge : edges) {
-                boolean hasStart = connected.contains(edge.getStartNodeId());
-                boolean hasEnd = connected.contains(edge.getEndNodeId());
-                if (hasStart && !hasEnd) {
-                    connected.add(edge.getEndNodeId());
-                    changed = true;
-                } else if (hasEnd && !hasStart) {
-                    connected.add(edge.getStartNodeId());
-                    changed = true;
-                }
-            }
-        }
-        return connected;
-    }
-
-    private void updateSelectionDrag(Point2D currentCm) {
-        if (selectionDragStartCm == null) {
+    private void updateMoveDrag(Point2D currentCm) {
+        if (moveDragStartCm == null) {
             return;
         }
-        Point2D delta = currentCm.subtract(selectionDragStartCm);
-        bulkMoveActive = true;
-        bulkMoveDelta = delta;
-        bulkMoveNodes.clear();
-        bulkMoveNodes.addAll(selectionNodeStart.keySet());
-        bulkMoveEdges.clear();
-        for (Map.Entry<Integer, Point2D> entry : selectionNodeStart.entrySet()) {
+        Point2D delta = currentCm.subtract(moveDragStartCm);
+        for (Map.Entry<Integer, Point2D> entry : moveNodeStart.entrySet()) {
             Point2D start = entry.getValue();
-            updateNodePosition(entry.getKey(), start.add(delta), false);
+            updateNodePositionRaw(entry.getKey(), start.add(delta));
         }
-        bulkMoveActive = false;
-        bulkMoveDelta = null;
-        for (Integer nodeId : selectionNodeStart.keySet()) {
+        for (Map.Entry<Integer, EdgeControls> entry : moveEdgeStart.entrySet()) {
+            Edge edge = null;
+            for (Edge candidate : edges) {
+                if (candidate.getId() == entry.getKey()) {
+                    edge = candidate;
+                    break;
+                }
+            }
+            if (edge == null) {
+                continue;
+            }
+            boolean moveStart = moveNodeStart.containsKey(edge.getStartNodeId());
+            boolean moveEnd = moveNodeStart.containsKey(edge.getEndNodeId());
+            EdgeControls base = entry.getValue();
+            Point2D startControl = base.start();
+            Point2D endControl = base.end();
+            if (moveStart && startControl != null) {
+                startControl = startControl.add(delta);
+            }
+            if (moveEnd && endControl != null) {
+                endControl = endControl.add(delta);
+            }
+            edgeControls.put(edge.getId(), new EdgeControls(startControl, endControl));
+        }
+        for (Integer nodeId : moveNodeStart.keySet()) {
             updateConnectedEdges(nodeId);
         }
         updateShapePolygons();
         refreshHandleLayer();
-        bulkMoveNodes.clear();
-        bulkMoveEdges.clear();
         boolean guidesChanged = false;
-        for (Map.Entry<Integer, Double> entry : selectionGuideStart.entrySet()) {
+        for (Map.Entry<Integer, Double> entry : moveGuideStart.entrySet()) {
             Guide guide = findGuide(entry.getKey());
             if (guide == null) {
                 continue;
@@ -987,7 +1000,7 @@ public class CanvasPane extends Pane {
         if (guidesChanged) {
             redrawGuides();
         }
-        for (Map.Entry<Integer, Dimension> entry : selectionDimensionStart.entrySet()) {
+        for (Map.Entry<Integer, Dimension> entry : moveDimensionStart.entrySet()) {
             Dimension dimension = entry.getValue();
             Dimension current = findDimensionById(entry.getKey());
             if (current == null) {
@@ -1005,7 +1018,7 @@ public class CanvasPane extends Pane {
                 updateDimensionGeometry(entry.getKey(), start.add(delta), end.add(delta), offset);
             }
         }
-        for (Map.Entry<Integer, List<Point2D>> entry : selectionManualStart.entrySet()) {
+        for (Map.Entry<Integer, List<Point2D>> entry : moveManualStart.entrySet()) {
             List<Point2D> moved = new ArrayList<>();
             for (Point2D point : entry.getValue()) {
                 moved.add(point.add(delta));
@@ -1014,17 +1027,19 @@ public class CanvasPane extends Pane {
         }
     }
 
-    private void finishSelectionDrag() {
-        selectionDragging = false;
-        if (selectionDragStartCm == null) {
+    private void finishMoveDrag() {
+        moveDragging = false;
+        if (moveDragStartCm == null) {
             return;
         }
-        if (mode == Mode.MOVE_NODE) {
-            finalizeMoveControls();
-        }
-        if (onNodesMoved != null && !selectionNodeStart.isEmpty()) {
+        if (moveDragSingleNodeId != null && onNodeMoveFinished != null) {
+            NodePoint node = findNode(moveDragSingleNodeId);
+            if (node != null) {
+                onNodeMoveFinished.accept(node.getId(), new Point2D(node.getXCm(), node.getYCm()));
+            }
+        } else if (onNodesMoved != null && !moveNodeStart.isEmpty()) {
             List<NodePoint> moved = new ArrayList<>();
-            for (Integer nodeId : selectionNodeStart.keySet()) {
+            for (Integer nodeId : moveNodeStart.keySet()) {
                 NodePoint node = findNode(nodeId);
                 if (node != null) {
                     moved.add(node);
@@ -1034,9 +1049,9 @@ public class CanvasPane extends Pane {
                 onNodesMoved.accept(moved);
             }
         }
-        if (onGuidesMoved != null && !selectionGuideStart.isEmpty()) {
+        if (onGuidesMoved != null && !moveGuideStart.isEmpty()) {
             List<Guide> movedGuides = new ArrayList<>();
-            for (Integer guideId : selectionGuideStart.keySet()) {
+            for (Integer guideId : moveGuideStart.keySet()) {
                 Guide guide = findGuide(guideId);
                 if (guide != null) {
                     movedGuides.add(guide);
@@ -1044,9 +1059,9 @@ public class CanvasPane extends Pane {
             }
             onGuidesMoved.accept(movedGuides);
         }
-        if (onDimensionsMoved != null && !selectionDimensionStart.isEmpty()) {
+        if (onDimensionsMoved != null && !moveDimensionStart.isEmpty()) {
             List<Dimension> moved = new ArrayList<>();
-            for (Integer dimensionId : selectionDimensionStart.keySet()) {
+            for (Integer dimensionId : moveDimensionStart.keySet()) {
                 Dimension dimension = findDimensionById(dimensionId);
                 if (dimension != null) {
                     moved.add(dimension);
@@ -1054,9 +1069,9 @@ public class CanvasPane extends Pane {
             }
             onDimensionsMoved.accept(moved);
         }
-        if (onManualShapesMoved != null && !selectionManualStart.isEmpty()) {
+        if (onManualShapesMoved != null && !moveManualStart.isEmpty()) {
             List<ManualShape> moved = new ArrayList<>();
-            for (Integer manualId : selectionManualStart.keySet()) {
+            for (Integer manualId : moveManualStart.keySet()) {
                 ManualShape shape = findManualShape(manualId);
                 if (shape != null) {
                     moved.add(shape);
@@ -1064,11 +1079,13 @@ public class CanvasPane extends Pane {
             }
             onManualShapesMoved.accept(moved);
         }
-        selectionDragStartCm = null;
-        selectionNodeStart.clear();
-        selectionGuideStart.clear();
-        selectionDimensionStart.clear();
-        selectionManualStart.clear();
+        moveDragStartCm = null;
+        moveDragSingleNodeId = null;
+        moveNodeStart.clear();
+        moveEdgeStart.clear();
+        moveGuideStart.clear();
+        moveDimensionStart.clear();
+        moveManualStart.clear();
     }
 
     private void redraw() {
@@ -1165,42 +1182,18 @@ public class CanvasPane extends Pane {
                 if (onNodeClicked != null) {
                     onNodeClicked.accept(node.getId());
                 }
-                if (selectedNodes.contains(node.getId()) && selectedNodes.size() > 1) {
-                    Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                    startSelectionDrag(toCm(local.getX(), local.getY()));
-                } else {
-                    moveNodeStart.clear();
-                    moveNodeIds.clear();
-                    moveNodeStart.put(node.getId(), new Point2D(node.getXCm(), node.getYCm()));
-                    moveNodeIds.add(node.getId());
-                    setMovePreviewActive(true);
-                    movingNodeId = node.getId();
+                if (!selectedNodes.contains(node.getId())) {
+                    clearSelectionSets();
+                    selectedNodes.add(node.getId());
+                    selectedNodeId = node.getId();
+                    selectedShapeId = null;
+                    updateSelectionStyles();
+                    notifySelectionChanged();
                 }
+                Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
+                startMoveDrag(toCm(local.getX(), local.getY()), collectMoveNodeIds());
                 event.consume();
             }
-        });
-        circle.setOnMouseDragged(event -> {
-            if (mode != Mode.MOVE_NODE || movingNodeId == null || movingNodeId != node.getId()) {
-                return;
-            }
-            Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-            Point2D cmPoint = toCm(local.getX(), local.getY());
-            updateNodePosition(node.getId(), cmPoint, event.isShiftDown());
-            event.consume();
-        });
-        circle.setOnMouseReleased(event -> {
-            if (mode != Mode.MOVE_NODE || movingNodeId == null || movingNodeId != node.getId()) {
-                return;
-            }
-            Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-            Point2D cmPoint = toCm(local.getX(), local.getY());
-            updateNodePosition(node.getId(), cmPoint, event.isShiftDown());
-            finalizeMoveControls();
-            if (onNodeMoveFinished != null) {
-                onNodeMoveFinished.accept(node.getId(), cmPoint);
-            }
-            movingNodeId = null;
-            event.consume();
         });
         nodeViews.put(node.getId(), circle);
         nodeLayer.getChildren().add(circle);
@@ -1732,7 +1725,7 @@ public class CanvasPane extends Pane {
                     notifySelectionChanged();
                 }
                 Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                startSelectionDrag(toCm(local.getX(), local.getY()));
+                startMoveDrag(toCm(local.getX(), local.getY()), collectMoveNodeIds());
                 event.consume();
             }
         });
@@ -1806,7 +1799,7 @@ public class CanvasPane extends Pane {
                     notifySelectionChanged();
                 }
                 Point2D local = sceneToLocal(event.getSceneX(), event.getSceneY());
-                startSelectionDrag(toCm(local.getX(), local.getY()));
+                startMoveDrag(toCm(local.getX(), local.getY()), collectMoveNodeIds());
                 event.consume();
             }
         });
@@ -1831,16 +1824,25 @@ public class CanvasPane extends Pane {
             nodeMap.put(node.getId(), node);
         }
         List<NodePoint> resolved = new ArrayList<>();
+        java.util.Set<Integer> seen = new java.util.HashSet<>();
         if (shape.getNodeIds() != null) {
             for (Integer nodeId : shape.getNodeIds()) {
                 NodePoint node = nodeMap.get(nodeId);
                 if (node != null) {
                     resolved.add(node);
+                    seen.add(node.getId());
                 }
             }
         }
-        if (resolved.isEmpty() && shape.getNodes() != null && !shape.getNodes().isEmpty()) {
-            resolved.addAll(shape.getNodes());
+        if (shape.getNodes() != null) {
+            for (NodePoint node : shape.getNodes()) {
+                if (node == null || seen.contains(node.getId())) {
+                    continue;
+                }
+                NodePoint canonical = nodeMap.getOrDefault(node.getId(), node);
+                resolved.add(canonical);
+                seen.add(canonical.getId());
+            }
         }
         return resolved;
     }
@@ -1868,10 +1870,28 @@ public class CanvasPane extends Pane {
             circle.setCenterX(xCm * scale);
             circle.setCenterY(yCm * scale);
         }
-        if (!bulkMoveActive && !movePreviewActive) {
+        if (!bulkMoveActive) {
             updateConnectedEdges(nodeId);
             updateShapePolygons();
             refreshHandleLayer();
+        }
+    }
+
+    private void updateNodePositionRaw(int nodeId, Point2D cmPoint) {
+        double xCm = Math.max(0, cmPoint.getX());
+        double yCm = Math.max(0, cmPoint.getY());
+        for (int i = 0; i < nodes.size(); i++) {
+            NodePoint node = nodes.get(i);
+            if (node.getId() == nodeId) {
+                nodes.set(i, new NodePoint(nodeId, node.getDocumentId(), xCm, yCm));
+                break;
+            }
+        }
+        updateDimensionsForNode(nodeId, new Point2D(xCm, yCm));
+        Circle circle = nodeViews.get(nodeId);
+        if (circle != null) {
+            circle.setCenterX(xCm * scale);
+            circle.setCenterY(yCm * scale);
         }
     }
 
@@ -1907,68 +1927,6 @@ public class CanvasPane extends Pane {
         if (changed) {
             redrawGuides();
         }
-    }
-
-    private void finalizeMoveControls() {
-        if (moveNodeStart.isEmpty()) {
-            setMovePreviewActive(false);
-            return;
-        }
-        Point2D delta = null;
-        boolean uniform = true;
-        finalizeMoveInProgress = true;
-        for (Integer nodeId : moveNodeIds) {
-            Point2D start = moveNodeStart.get(nodeId);
-            NodePoint node = findNode(nodeId);
-            if (start == null || node == null) {
-                continue;
-            }
-            Point2D current = new Point2D(node.getXCm(), node.getYCm());
-            Point2D nodeDelta = current.subtract(start);
-            if (delta == null) {
-                delta = nodeDelta;
-            } else if (delta.distance(nodeDelta) > 1e-6) {
-                uniform = false;
-                break;
-            }
-        }
-        if (uniform && delta != null) {
-            bulkMoveActive = true;
-            bulkMoveDelta = delta;
-            bulkMoveNodes.clear();
-            bulkMoveNodes.addAll(moveNodeIds);
-            bulkMoveEdges.clear();
-            for (Integer nodeId : moveNodeIds) {
-                Point2D start = moveNodeStart.get(nodeId);
-                NodePoint node = findNode(nodeId);
-                if (start == null || node == null) {
-                    continue;
-                }
-                updateControlsForNode(nodeId, start, new Point2D(node.getXCm(), node.getYCm()));
-            }
-            bulkMoveActive = false;
-            bulkMoveDelta = null;
-            bulkMoveNodes.clear();
-            bulkMoveEdges.clear();
-        } else {
-            for (Integer nodeId : moveNodeIds) {
-                Point2D start = moveNodeStart.get(nodeId);
-                NodePoint node = findNode(nodeId);
-                if (start == null || node == null) {
-                    continue;
-                }
-                updateControlsForNode(nodeId, start, new Point2D(node.getXCm(), node.getYCm()));
-            }
-        }
-        finalizeMoveInProgress = false;
-        for (Integer nodeId : moveNodeIds) {
-            updateConnectedEdges(nodeId);
-        }
-        updateShapePolygons();
-        refreshHandleLayer();
-        moveNodeStart.clear();
-        moveNodeIds.clear();
-        setMovePreviewActive(false);
     }
 
     private void updateConnectedEdges(int nodeId) {
@@ -2085,20 +2043,6 @@ public class CanvasPane extends Pane {
     private void updateLayerTransforms() {
         contentLayer.setTranslateX(panX);
         contentLayer.setTranslateY(panY);
-    }
-
-    private void setMovePreviewActive(boolean active) {
-        if (movePreviewActive == active) {
-            return;
-        }
-        movePreviewActive = active;
-        shapeLayer.setVisible(!active);
-        manualShapeLayer.setVisible(!active);
-        edgeLayer.setVisible(!active);
-        plankLayer.setVisible(!active);
-        if (!active) {
-            updateShapePolygons();
-        }
     }
 
     private void updateBoardAndClip() {
@@ -2476,9 +2420,6 @@ public class CanvasPane extends Pane {
     }
 
     private void updateControlsForNode(int nodeId, Point2D previous, Point2D current) {
-        if (movePreviewActive && !finalizeMoveInProgress) {
-            return;
-        }
         Point2D delta = bulkMoveActive && bulkMoveDelta != null ? bulkMoveDelta : current.subtract(previous);
         for (Edge edge : edges) {
             EdgeControls controls = edgeControls.get(edge.getId());

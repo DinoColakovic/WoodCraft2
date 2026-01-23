@@ -95,7 +95,7 @@ public class GeometryService {
             path.add(node.getId());
             dfsCycles(node.getId(), node.getId(), adjacency, path, seenCycles, shapes, nodeMap, edgeMap, documentId);
         }
-        return shapes;
+        return filterContainedCycles(shapes, nodeMap, edgeMap);
     }
 
     public double computeAreaCm2(List<Point2D> points) {
@@ -268,6 +268,68 @@ public class GeometryService {
                     + t * t * t * p3.getY();
             points.add(new Point2D(x, y));
         }
+    }
+
+    private List<ShapePolygon> filterContainedCycles(List<ShapePolygon> shapes,
+                                                     Map<Integer, NodePoint> nodeMap,
+                                                     Map<String, Edge> edgeMap) {
+        if (shapes.size() <= 1) {
+            return shapes;
+        }
+        List<List<Point2D>> samples = new ArrayList<>();
+        for (ShapePolygon shape : shapes) {
+            samples.add(samplePath(shape.getNodeIds(), nodeMap, edgeMap));
+        }
+        boolean[] keep = new boolean[shapes.size()];
+        for (int i = 0; i < keep.length; i++) {
+            keep[i] = true;
+        }
+        for (int i = 0; i < shapes.size(); i++) {
+            List<Point2D> outer = samples.get(i);
+            if (outer.size() < 3) {
+                continue;
+            }
+            double outerArea = shapes.get(i).getAreaCm2();
+            for (int j = 0; j < shapes.size(); j++) {
+                if (i == j) {
+                    continue;
+                }
+                if (outerArea <= shapes.get(j).getAreaCm2()) {
+                    continue;
+                }
+                List<Point2D> inner = samples.get(j);
+                if (inner.size() < 3) {
+                    continue;
+                }
+                Point2D probe = inner.get(0);
+                if (pointInPolygon(outer, probe)) {
+                    keep[i] = false;
+                    break;
+                }
+            }
+        }
+        List<ShapePolygon> filtered = new ArrayList<>();
+        for (int i = 0; i < shapes.size(); i++) {
+            if (keep[i]) {
+                filtered.add(shapes.get(i));
+            }
+        }
+        return filtered;
+    }
+
+    private boolean pointInPolygon(List<Point2D> polygon, Point2D point) {
+        boolean inside = false;
+        for (int i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+            Point2D a = polygon.get(i);
+            Point2D b = polygon.get(j);
+            boolean intersect = ((a.getY() > point.getY()) != (b.getY() > point.getY()))
+                    && (point.getX() < (b.getX() - a.getX()) * (point.getY() - a.getY())
+                    / (b.getY() - a.getY()) + a.getX());
+            if (intersect) {
+                inside = !inside;
+            }
+        }
+        return inside;
     }
 
     private String normalizeCycle(List<Integer> path) {

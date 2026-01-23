@@ -1249,10 +1249,33 @@ public class MainView {
         }
         for (Integer shapeId : targetShapes) {
             ShapePolygon shape = findShapeById(shapeId);
-            if (shape == null || shape.getNodes() == null || shape.getNodes().size() < 3) {
+            if (shape == null) {
                 continue;
             }
-            List<NodePoint> shapeNodes = shape.getNodes();
+            List<NodePoint> shapeNodes = new ArrayList<>();
+            java.util.Set<Integer> seen = new java.util.HashSet<>();
+            if (shape.getNodeIds() != null) {
+                for (Integer nodeId : shape.getNodeIds()) {
+                    NodePoint node = nodeMap.get(nodeId);
+                    if (node != null) {
+                        shapeNodes.add(node);
+                        seen.add(node.getId());
+                    }
+                }
+            }
+            if (shape.getNodes() != null) {
+                for (NodePoint node : shape.getNodes()) {
+                    if (node == null || seen.contains(node.getId())) {
+                        continue;
+                    }
+                    NodePoint canonical = nodeMap.getOrDefault(node.getId(), node);
+                    shapeNodes.add(canonical);
+                    seen.add(canonical.getId());
+                }
+            }
+            if (shapeNodes.size() < 2) {
+                continue;
+            }
             List<IntersectionHit> intersections = new ArrayList<>();
             for (int i = 0; i < shapeNodes.size(); i++) {
                 NodePoint a = shapeNodes.get(i);
@@ -1267,19 +1290,22 @@ public class MainView {
                     continue;
                 }
                 int existingNodeId = nearExistingNode(hit, a, b);
-                int nodeId = existingNodeId;
-                if (nodeId == -1) {
+                int boundaryNodeId = existingNodeId;
+                if (boundaryNodeId == -1) {
                     NodePoint created = nodeDao.create(currentDocument.getId(), hit.getX(), hit.getY());
-                    nodeId = created.getId();
-                    nodeMap.put(nodeId, created);
+                    boundaryNodeId = created.getId();
+                    nodeMap.put(boundaryNodeId, created);
                 }
+                NodePoint cutNode = nodeDao.create(currentDocument.getId(), hit.getX(), hit.getY());
+                int cutNodeId = cutNode.getId();
+                nodeMap.put(cutNodeId, cutNode);
                 int edgeId = findEdgeId(allEdges, a.getId(), b.getId());
                 if (edgeId != -1) {
                     edgeDao.deleteById(edgeId);
-                    edgeDao.create(currentDocument.getId(), a.getId(), nodeId);
-                    edgeDao.create(currentDocument.getId(), nodeId, b.getId());
+                    edgeDao.create(currentDocument.getId(), a.getId(), boundaryNodeId);
+                    edgeDao.create(currentDocument.getId(), boundaryNodeId, b.getId());
                 }
-                intersections.add(new IntersectionHit(nodeId, projectionT(start, end, hit)));
+                intersections.add(new IntersectionHit(cutNodeId, projectionT(start, end, hit)));
             }
             if (intersections.size() >= 2) {
                 intersections.sort((left, right) -> Double.compare(left.t(), right.t()));
@@ -2392,6 +2418,8 @@ private void showHelpDialog() {
             "Osnovne funkcije:\n\n" +
             "• Klik na platno – dodavanje tačke (node)\n" +
             "• Povlačenje tačke – pomjeranje\n" +
+            "• Drzanje Shift tokom pomjeranja cvora – ispravlja bezier rucke\n" +
+            "• Povlacenje sa lenjira – postavlja vodilice\n" +
             "• Spajanje tačaka – kreiranje ivica\n" +
             "• Dimenzije – mjerenje udaljenosti\n" +
             "• Materijali – obračun cijene\n" +
